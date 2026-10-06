@@ -1,0 +1,21 @@
+[package]
+name = "btbm-lngi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "btbm_core"
+path = "src/rust/mod.rs"
+crate-type = ["cdylib", "rlib"]
+
+[workspace]
+
+[dependencies]
+wasm-bindgen = "=0.2.126"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+
+[profile.release]
+opt-level = "s"
+lto = true

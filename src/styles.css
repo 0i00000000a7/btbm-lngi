@@ -1,0 +1,482 @@
+/* BTBMS LNGI -- stylesheet
+   Default font: JetBrains Mono (loaded from Google Fonts in index.html). */
+
+:root {
+    color-scheme: light dark;
+
+    --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --bg: #f3f4f7;
+    --surface: #ffffff;
+    --surface-2: #fafbfc;
+    --fg: #14161a;
+    --fg-soft: #3d434e;
+    --muted: #737b8a;
+    --line: #e4e7ee;
+    --line-strong: #d3d8e2;
+    --accent: #3b6ef6;
+    --accent-fg: #ffffff;
+    --accent-soft: #e9f0ff;
+    --ok: #16a34a;
+
+    --radius: 14px;
+    --radius-sm: 9px;
+    --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -18px rgba(16, 24, 40, 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #0e1014;
+        --surface: #161920;
+        --surface-2: #1b1f27;
+        --fg: #e8ebf1;
+        --fg-soft: #c3c9d4;
+        --muted: #868e9e;
+        --line: #262b35;
+        --line-strong: #333a47;
+        --accent: #6b93ff;
+        --accent-fg: #0e1014;
+        --accent-soft: #1a2340;
+        --ok: #4ade80;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 36px -20px rgba(0, 0, 0, 0.8);
+    }
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+::selection {
+    background: var(--accent-soft);
+    color: var(--fg);
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.app {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 22px 20px 72px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+}
+
+.brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+}
+
+.brand h1 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.brand .tag {
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border-radius: 999px;
+    padding: 3px 9px;
+    white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.hero {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 22px 24px 20px;
+}
+
+.hero-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.hero-ordinal {
+    margin: 14px 0 4px;
+    font-size: clamp(1.4rem, 3.2vw, 2.1rem);
+    font-weight: 500;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+    /* Height comes from inline styles (draggable, like the panels); scroll
+       internally to avoid jittering the whole page. */
+    overflow-y: auto;
+    color: var(--fg);
+}
+
+.hero-ordinal:empty::before {
+    content: '—';
+    color: var(--muted);
+}
+
+.hero-ordinal sup {
+    font-size: 0.62em;
+    vertical-align: super;
+    line-height: 0;
+}
+
+.hero-ordinal sub {
+    font-size: 0.62em;
+    vertical-align: sub;
+    line-height: 0;
+}
+
+/* -------------------------------------------------------------- progress */
+
+.progress {
+    margin-top: 18px;
+}
+
+.bar {
+    height: 10px;
+    background: var(--line);
+    border-radius: 999px;
+    overflow: hidden;
+}
+
+.fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 60%, var(--ok)));
+    transition: width 90ms linear;
+}
+
+.caption {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 7px;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.caption b {
+    color: var(--fg-soft);
+    font-weight: 500;
+}
+
+/* ----------------------------------------------------------------- stats */
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.stat {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+    padding: 12px 15px;
+}
+
+.stat .label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.stat .value {
+    margin-top: 5px;
+    font-size: 1.02rem;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- panels */
+
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.section-head h2 {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.panels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-start;
+}
+
+.panel {
+    min-width: 280px;
+    flex-grow: 1;
+    border: 1px solid var(--line);
+    border-left: 3px solid hsl(var(--hue, 220) 70% 62%);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, hsl(var(--hue, 220) 70% 55%) 7%, var(--surface));
+    box-shadow: var(--shadow-sm);
+    padding: 12px 14px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.panel-body {
+    flex: 0 0 auto;
+    overflow: auto;
+    font-size: 0.95rem;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+    color: var(--fg);
+    padding-bottom: 6px;
+}
+
+.panel-body sup {
+    font-size: 0.62em;
+    vertical-align: super;
+    line-height: 0;
+}
+
+.panel-body sub {
+    font-size: 0.62em;
+    vertical-align: sub;
+    line-height: 0;
+}
+
+/* Drag to resize a panel: pinned to the card's bottom, spanning the full row. */
+.resize-handle {
+    flex: 0 0 auto;
+    height: 14px;
+    margin: 0 -14px;
+    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+    cursor: ns-resize;
+    touch-action: none;
+    background: linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent 5px,
+        var(--line-strong) 5px,
+        var(--line-strong) 6px,
+        transparent 6px,
+        transparent 9px,
+        var(--line-strong) 9px,
+        var(--line-strong) 10px,
+        transparent 10px
+    );
+    opacity: 0.55;
+    transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.resize-handle:hover {
+    opacity: 1;
+    background-color: color-mix(in srgb, hsl(var(--hue, 220) 70% 55%) 22%, transparent);
+}
+
+/* The hero ordinal box's handle sits flush with its bottom edge; padding differs from panels. */
+.hero .resize-handle {
+    margin: 0 -24px;
+    border-radius: 0;
+}
+
+/* --------------------------------------------------------------- controls */
+
+button {
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--fg-soft);
+    padding: 6px 12px;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+}
+
+button.primary:hover {
+    filter: brightness(1.06);
+    color: var(--accent-fg);
+}
+
+button.ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--muted);
+}
+
+button.ghost:hover {
+    background: var(--surface-2);
+    border-color: var(--line);
+    color: var(--fg);
+}
+
+select,
+input {
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    padding: 6px 9px;
+}
+
+select:focus-visible,
+input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+}
+
+.add {
+    align-self: center;
+}
+
+/* ----------------------------------------------------------------- modal */
+
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 12, 16, 0.45);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    z-index: 10;
+}
+
+.modal {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 20px 22px;
+    width: min(440px, 100%);
+    max-height: 88vh;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.modal h3 {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.modal h4 {
+    margin: 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.modal hr {
+    border: none;
+    border-top: 1px solid var(--line);
+    margin: 2px 0;
+}
+
+.modal label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+/* ------------------------------------------------------------ scrollbars */
+
+* {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+}
