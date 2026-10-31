@@ -3,8 +3,3 @@ dist
 src/wasm
 target
 *.log
-
-# Local reference material (third-party, not part of this app)
-notations/
-reference-notation-explorer/
-w-Y-global-lngi-main/
