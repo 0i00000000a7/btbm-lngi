@@ -1,0 +1,29 @@
+/* Global styles for the developer page only (not part of the app bundle). */
+
+:root {
+    --dev-bg: #fbfbfd;
+    --dev-fg: #1b1f27;
+    --dev-muted: #6b7482;
+    --dev-line: #e3e6ec;
+    --dev-accent: #6a2fd8;
+    --dev-accent-soft: #efe6ff;
+    --dev-done: #f2f4f7;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    background: var(--dev-bg);
+    color: var(--dev-fg);
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.45;
+}

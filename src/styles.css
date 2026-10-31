@@ -23,6 +23,13 @@
     --radius-sm: 9px;
     --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
     --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -18px rgba(16, 24, 40, 0.35);
+
+    /* Chevron for the custom dropdown trigger, drawn locally so it follows the
+       muted text colour of the current theme. */
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23737b8a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+    /* Check mark for the selected dropdown row (accent coloured). */
+    --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M1 5.2 4.3 8.5 11 1.5' fill='none' stroke='%233b6ef6' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +49,10 @@
 
         --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
         --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 36px -20px rgba(0, 0, 0, 0.8);
+
+        --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23868e9e' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+        --check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M1 5.2 4.3 8.5 11 1.5' fill='none' stroke='%236b93ff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     }
 }
 
@@ -150,8 +161,8 @@ body {
     color: var(--fg);
 }
 
-.hero-ordinal:empty::before {
-    content: '—';
+/* The empty matrix, before the walk starts. */
+.empty-ordinal {
     color: var(--muted);
 }
 
@@ -199,6 +210,532 @@ body {
 .caption b {
     color: var(--fg-soft);
     font-weight: 500;
+}
+
+.top-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+a.ghost {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* ---------------------------------------------------------------- rewind */
+
+.milestone-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+    padding: 14px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+}
+
+.milestone-next {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.milestone-term {
+    font-size: 1.05rem;
+    overflow-wrap: anywhere;
+}
+
+/* The term is rendered from the caret form, so nested heights arrive as nested
+   `<sup>` — shrink them or a four-deep term grows taller than the row. */
+.milestone-term sup,
+.milestone-row-term sup {
+    font-size: 0.62em;
+    vertical-align: super;
+    line-height: 0;
+}
+
+.milestone-side {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.milestone-title {
+    color: var(--accent);
+    font-size: 0.92rem;
+}
+
+.milestone-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--fg-soft);
+    line-height: 1.55;
+}
+
+.milestone-list {
+    list-style: none;
+    margin: 2px 0 0;
+    padding: 0;
+    max-height: 240px;
+    overflow-y: auto;
+    border-top: 1px solid var(--line);
+    font-size: 0.8rem;
+}
+
+.milestone-row {
+    display: grid;
+    grid-template-columns: 28px minmax(120px, 1fr) 190px 18px;
+    align-items: baseline;
+    gap: 10px;
+    padding: 4px 2px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.milestone-row:hover {
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.milestone-row:last-child {
+    border-bottom: 0;
+}
+
+.milestone-row.reached {
+    color: var(--fg-soft);
+}
+
+.milestone-row.next {
+    background: var(--accent-soft);
+    color: var(--fg);
+}
+
+/* Where the walk is *now*: a tint and a hairline, so it reads even when the
+   view has been rewound away from it. */
+.milestone-row.live-next {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+/* The row the header block is currently describing. */
+.milestone-row.focused {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--fg);
+    box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.milestone-live {
+    padding: 1px 8px;
+    font-size: 0.72rem;
+    line-height: 1.5;
+}
+
+.milestone-index {
+    font-variant-numeric: tabular-nums;
+    opacity: 0.6;
+}
+
+.milestone-row-term {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* Deeply nested `<sup>` climbs a few pixels above the content box, and
+       `overflow: hidden` clips at the padding edge — so lend it headroom
+       without making the row taller. */
+    padding-top: 5px;
+    margin-top: -5px;
+}
+
+/* The title rides along with the term, so the row does not reserve an empty
+   column for it — that column was most of the gap before the date. */
+.milestone-row-title {
+    margin-left: 10px;
+    color: var(--accent);
+}
+
+.milestone-row-date {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A time that is not a real date (LIMIT, or aeons out) says a phrase, not a
+   moment: read it that way instead of as a timestamp. */
+.milestone-row-date.relative,
+.milestone-when.relative {
+    font-style: italic;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    opacity: 0.85;
+}
+
+.milestone-row-mark {
+    text-align: right;
+    color: var(--accent);
+}
+
+/* Actions on the selected landmark, above the list. */
+.milestone-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: -2px;
+}
+
+.milestone-actions button {
+    font-size: 0.75rem;
+    padding: 2px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--accent);
+}
+
+.milestone-actions button:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.milestone-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.rewind-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-sm);
+    padding: 14px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.rewind-value {
+    font-size: 0.82rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.rewind-levels {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.chip {
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    border-radius: 999px;
+    opacity: 0.55;
+}
+
+.chip.on {
+    opacity: 1;
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.rewind-reels {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.reel {
+    display: grid;
+    grid-template-columns: 68px 1fr 46px;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+
+.reel input[type='range'] {
+    /* Undo the global input styling: a slider is not a text box. */
+    appearance: none;
+    -webkit-appearance: none;
+    width: 100%;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.reel input[type='range']::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--accent) var(--fill, 0%),
+        var(--line) var(--fill, 0%)
+    );
+}
+
+.reel input[type='range']::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--line);
+}
+
+.reel input[type='range']::-moz-range-progress {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--accent);
+}
+
+.reel input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    /* Explicit, so the border is included in the size the margin below centres. */
+    box-sizing: border-box;
+    width: 13px;
+    height: 13px;
+    margin-top: -4.5px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    box-shadow: 0 1px 2px rgba(20, 24, 35, 0.22);
+    transition: transform 0.12s ease;
+}
+
+.reel input[type='range']::-moz-range-thumb {
+    box-sizing: border-box;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    box-shadow: 0 1px 2px rgba(20, 24, 35, 0.22);
+}
+
+.reel input[type='range']:hover::-webkit-slider-thumb,
+.reel input[type='range']:active::-webkit-slider-thumb {
+    transform: scale(1.18);
+}
+
+.reel input[type='range']:focus-visible {
+    outline: none;
+}
+
+.reel input[type='range']:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.reel input[type='range']:focus-visible::-moz-range-thumb {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.reel-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-soft);
+}
+
+.rewind-jump {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.rewind-jump input {
+    width: 11.5rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+    transition:
+        border-color 0.15s ease,
+        background 0.15s ease,
+        box-shadow 0.15s ease,
+        color 0.15s ease;
+}
+
+/* The moment the field is clicked into, it reads as an active control rather
+   than another piece of chrome: tinted, ringed, with the caret colour following
+   the accent. */
+.rewind-jump input:focus,
+.rewind-jump input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59, 110, 246, 0.18);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.rewind-jump input:hover:not(:focus) {
+    border-color: var(--accent);
+}
+
+.rewind-range {
+    width: 100%;
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.rewind-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.rewind-row .ghost:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+/* Developer-only clock knobs, kept inside the card they belong to rather than
+   buried in the settings modal. */
+.lang-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.rewind-dev {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    padding-top: 9px;
+    border-top: 1px dashed var(--line-strong);
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+
+.rewind-dev-tag {
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    padding: 1px 7px;
+}
+
+.rewind-dev label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rewind-dev input {
+    width: 84px;
+    padding: 3px 7px;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* The acceleration slider is wide and has no box of its own. */
+.rewind-speed {
+    /* A grid rather than flex: `minmax(0, 1fr)` guarantees the track shrinks to
+       the row instead of pushing the readout past the card's edge. */
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) 76px;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.rewind-speed input[type='range'] {
+    /* Undo the global input styling: a slider is not a text box. */
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+/* Dark at both ends, pale through the middle: 0× sits at the centre and each
+   direction fades in from there. */
+.rewind-speed input[type='range']::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--accent) 0%,
+        color-mix(in srgb, var(--accent) 8%, transparent) 50%,
+        var(--accent) 100%
+    );
+}
+
+.rewind-speed input[type='range']::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: linear-gradient(
+        to right,
+        var(--accent) 0%,
+        color-mix(in srgb, var(--accent) 8%, transparent) 50%,
+        var(--accent) 100%
+    );
+}
+
+.rewind-speed input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: 14px;
+    height: 14px;
+    margin-top: -4px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    box-shadow: 0 1px 2px rgba(20, 24, 35, 0.22);
+}
+
+.rewind-speed input[type='range']::-moz-range-thumb {
+    box-sizing: border-box;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--accent);
+    box-shadow: 0 1px 2px rgba(20, 24, 35, 0.22);
+}
+
+.speed-value {
+    min-width: 74px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.rewind-dev button {
+    margin-left: auto;
+    font-size: 0.75rem;
+}
+
+.tag.past {
+    background: var(--accent-soft);
+    color: var(--accent);
 }
 
 /* ----------------------------------------------------------------- stats */
@@ -272,6 +809,31 @@ body {
     gap: 10px;
 }
 
+.fold {
+    font: inherit;
+    font-size: 10px;
+    line-height: 1;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.section-head h2 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.fold:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 .panel-head {
     display: flex;
     align-items: center;
@@ -299,6 +861,16 @@ body {
     font-size: 0.62em;
     vertical-align: sub;
     line-height: 0;
+}
+
+/* --------------------------------------------------------- containment */
+
+/* The ordinal boxes have a fixed height and are rebuilt wholesale whenever the
+   ordinal changes. Containing them keeps style recalculation and layout scoped
+   to the box instead of propagating invalidations out to the rest of the page. */
+.hero-ordinal,
+.panel-body {
+    contain: content;
 }
 
 /* Drag to resize a panel: pinned to the card's bottom, spanning the full row. */
@@ -383,7 +955,6 @@ button.ghost:hover {
     color: var(--fg);
 }
 
-select,
 input {
     font: inherit;
     font-size: 0.82rem;
@@ -394,11 +965,132 @@ input {
     padding: 6px 9px;
 }
 
-select:focus-visible,
 input:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
     border-color: var(--accent);
+}
+
+/* --------------------------------------------------------- custom dropdown */
+
+/* A native <select> popup is drawn by the platform and cannot be styled, so the
+   mode pickers are hand-built: a button plus an absolutely positioned list that
+   matches the rest of the UI. */
+.select {
+    position: relative;
+    display: inline-block;
+    min-width: 0;
+}
+
+.select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    font: inherit;
+    font-size: 0.82rem;
+    line-height: 1.2;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px 6px 9px;
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.select-trigger::after {
+    content: '';
+    flex: 0 0 auto;
+    width: 9px;
+    height: 6px;
+    background: var(--chevron) no-repeat center / contain;
+    transition: transform 150ms ease;
+}
+
+.select-trigger:hover {
+    border-color: var(--accent);
+}
+
+.select-trigger[aria-expanded='true'] {
+    border-color: var(--accent);
+    background: var(--surface-2);
+}
+
+.select-trigger[aria-expanded='true']::after {
+    transform: rotate(180deg);
+}
+
+.select-value {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.select-menu {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 5px);
+    left: 0;
+    min-width: 100%;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.select-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    font: inherit;
+    font-size: 0.82rem;
+    color: var(--fg-soft);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    padding: 7px 9px;
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+/* The trailing check mark marks the current value without changing the width,
+   so the list does not jitter between rows. */
+.select-option::after {
+    content: '';
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+}
+
+.select-option:hover,
+.select-option:focus-visible {
+    background: var(--surface-2);
+    color: var(--fg);
+    outline: none;
+}
+
+.select-option.selected {
+    color: var(--accent);
+    background: var(--accent-soft);
+    font-weight: 600;
+}
+
+.select-option.selected::after {
+    content: '';
+    background: var(--check) no-repeat center / contain;
+    width: 11px;
+    height: 9px;
 }
 
 .add {
@@ -459,6 +1151,13 @@ input:focus-visible {
     flex-direction: column;
     gap: 5px;
     font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.modal .hint {
+    margin: -6px 0 0;
+    font-size: 0.72rem;
+    line-height: 1.45;
     color: var(--muted);
 }
 

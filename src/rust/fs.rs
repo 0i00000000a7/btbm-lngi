@@ -78,14 +78,14 @@ fn ascend_replace(
     t_layer: Option<i64>,
     new_tail: &[Column],
 ) -> Expr {
-    let mut result: Expr = Vec::new();
+    let mut result: Expr = Vec::with_capacity(expr.len());
     let last_i = expr.len().saturating_sub(1);
     for (i, col) in expr.iter().enumerate() {
         if t_layer == Some(0) && i == last_i {
             result.extend_from_slice(new_tail);
             continue;
         }
-        let mut result_col: Column = Vec::new();
+        let mut result_col: Column = Vec::with_capacity(col.len());
         let last_j = col.len().saturating_sub(1);
         for (j, entry) in col.iter().enumerate() {
             let new_t_layer = match t_layer {
@@ -104,6 +104,22 @@ fn ascend_replace(
         result.push(result_col);
     }
     result
+}
+
+/// [`ascend_replace`] for a single column, with no trailing-tail substitution
+/// (the callers pass no `t_layer`). Avoids building a one-column `Expr` only to
+/// clone it straight back out.
+fn ascend_replace_col(col: &[Entry], r: i64, diff: i64) -> Column {
+    col.iter()
+        .map(|entry| Entry {
+            value: if entry.value >= r {
+                entry.value + diff
+            } else {
+                entry.value
+            },
+            height: ascend_replace(&entry.height, r, diff, None, &[]),
+        })
+        .collect()
 }
 
 fn is_special(expr: &Expr, t_layer: i64) -> bool {
@@ -197,7 +213,7 @@ pub(crate) fn expand(expr: &Expr, index: i64) -> Expr {
     let col_tail = expr_tail.last().expect("expand: empty tail");
 
     let appending = root_appending_start(col_root, r, col_tail, t);
-    let seed: Expr = vec![without_last(col_tail).to_vec()];
+    let seed: &[Entry] = without_last(col_tail);
 
     let mut new_tail: Expr = Vec::new();
     let mut j = index;
@@ -210,8 +226,7 @@ pub(crate) fn expand(expr: &Expr, index: i64) -> Expr {
                 Some(t_layer - r_layer),
                 &new_tail,
             );
-            let mut new_col: Column =
-                ascend_replace(&seed, r, (j - 1) * (t - r), None, &[])[0].clone();
+            let mut new_col = ascend_replace_col(seed, r, (j - 1) * (t - r));
             for k in appending..col_root.len() as i64 {
                 let entry = &col_root[k as usize];
                 new_col.push(Entry {
@@ -224,8 +239,7 @@ pub(crate) fn expand(expr: &Expr, index: i64) -> Expr {
             if appending == col_root.len() as i64 {
                 panic!("Illegal state in BTBMS fundamental sequence");
             }
-            let mut new_col: Column =
-                ascend_replace(&seed, r, (j - 1) * (t - r), None, &[])[0].clone();
+            let mut new_col = ascend_replace_col(seed, r, (j - 1) * (t - r));
             let root_len = col_root.len() as i64;
             for k in appending..root_len {
                 let entry = &col_root[k as usize];

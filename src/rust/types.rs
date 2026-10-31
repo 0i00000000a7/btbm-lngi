@@ -7,7 +7,7 @@ pub type Expr = Vec<Column>;
 pub type Column = Vec<Entry>;
 
 /// One entry in the matrix: a value plus an (possibly empty) nested expression.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Entry {
     pub value: i64,
     pub height: Expr,
@@ -25,6 +25,10 @@ pub(crate) struct HeightEntry {
 }
 
 /// Display format.
+///
+/// `Plain` is the canonical text form, `Html` is what the
+/// panels inject with `v-html`, and `Latex` is the source handed to KaTeX when
+/// math rendering is enabled in the settings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayType {
     Plain,

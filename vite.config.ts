@@ -1,5 +1,6 @@
 import { defineConfig, loadEnv } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import { milestoneRebuild } from './src/dev/rebuild.ts';
 
 export default defineConfig(({ mode }) => {
     // GitHub Pages serves a project site from /<repo>/. The deploy workflow
@@ -10,7 +11,7 @@ export default defineConfig(({ mode }) => {
 
     return {
         base: base.endsWith('/') ? base : `${base}/`,
-        plugins: [vue()],
+        plugins: [vue(), milestoneRebuild()],
         server: { host: '127.0.0.1', port: 5173 },
         build: { target: 'es2022' },
     };

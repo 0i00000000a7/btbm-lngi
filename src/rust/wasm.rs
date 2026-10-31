@@ -9,7 +9,9 @@ use std::cell::RefCell;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use super::display::display;
+use super::bocf;
+use super::convert;
+use super::display::{display_marked_parts, display_parts};
 use super::lngi::{Lngi, START_MS};
 use super::notation::Btbm;
 use super::types::{DisplayType, Expr};
@@ -19,60 +21,201 @@ thread_local! {
     static LNGI: RefCell<Lngi> = RefCell::new(Lngi::new());
 }
 
-/// Render an expression according to `mode`.
-///
-/// Except for `latex` (which emits LaTeX source), every mode renders HTML, so
-/// the superscript in `(0)(1^(2))` is a real superscript
-/// (`(0)(1<sup>(2)</sup>)`).
-fn render(n: &Btbm, e: &Expr, mode: &str) -> String {
-    match mode {
-        "layer" => display(&n.convert_to_layer(e), DisplayType::Html),
-        "annotated" => n.display_marked(e, DisplayType::Html, 1),
-        "latex" => n.display(e, DisplayType::Latex),
-        // "index" (and any unknown mode) -> the ordinal's HTML form as-is.
-        _ => n.display(e, DisplayType::Html),
+/// The output format: LaTeX source when KaTeX math rendering is on, HTML otherwise.
+fn format_of(latex: bool) -> DisplayType {
+    if latex {
+        DisplayType::Latex
+    } else {
+        DisplayType::Html
     }
 }
 
-/// The LNGI state (the result of one tick).
+/// Marker appended after the last kept column when the ordinal is truncated.
+fn ellipsis(ty: DisplayType) -> &'static str {
+    match ty {
+        DisplayType::Latex => "\\ldots",
+        _ => "\u{2026}",
+    }
+}
+
+/// Render an expression: `mode` picks the structure, `ty` picks the format.
 ///
-/// When the time is earlier than [`START_MS`], the ordinal is pinned to the
-/// least nonzero ordinal `(0)` (value 1) and the progress is 0.
+/// In `Html` form the superscript in `(0)(1^(2))` is a real superscript
+/// (`(0)(1<sup>(2)</sup>)`); in `Latex` form it is `^{...}` for KaTeX.
+///
+/// `max_cols` caps how many columns are rendered (`0` = no cap). A truncated
+/// ordinal keeps its first `max_cols` columns followed by an ellipsis. This is
+/// a display-only cap: the ordinal is still computed in full.
+fn render(n: &Btbm, e: &Expr, mode: &str, ty: DisplayType, max_cols: u32) -> String {
+    let limit = max_cols as usize;
+    let truncated = limit > 0 && e.len() > limit;
+
+    let prefix: Expr;
+    let expr: &Expr = if truncated {
+        prefix = e[..limit].to_vec();
+        &prefix
+    } else {
+        e
+    };
+
+    let mut parts = match mode {
+        "layer" => display_parts(&n.convert_to_layer(expr), ty),
+        "annotated" => display_marked_parts(expr, ty, 1),
+        // "index" (and any unknown mode) -> the expression as-is.
+        _ => display_parts(expr, ty),
+    };
+    if truncated {
+        parts.push(ellipsis(ty).to_string());
+    }
+
+    // Columns are joined with "\n" in LaTeX form so the frontend can typeset
+    // them separately and wrap between them — a single KaTeX run is one
+    // unbreakable box. KaTeX treats "\n" as whitespace, so a caller that does
+    // not split still renders correctly.
+    if ty == DisplayType::Latex {
+        parts.join("\n")
+    } else {
+        parts.join("")
+    }
+}
+
+/// The result of the computation step.
+///
+/// `ordinal` is the canonical plain form, which is mode-independent; turning it
+/// into a particular structure/format is a separate step ([`parse`]). When the
+/// time is earlier than [`START_MS`] it is the least nonzero ordinal `(0)`.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LngiState {
-    /// The current ordinal (rendered per `mode`).
+struct StepState {
+    /// Canonical plain form of the current ordinal.
     ordinal: String,
-    /// The next ordinal.
-    next_ordinal: String,
-    /// Progress toward the next ordinal, `0..1` (the bar width uses `percent * 100%`).
+    /// Progress toward the next ordinal, `0..1` (the bar uses `percent * 100%`).
     percent: f64,
 }
 
-/// Compute the LNGI state at `elapsed_ms` (relative to [`START_MS`]).
+/// Compute the ordinal at `elapsed_ms` (relative to [`START_MS`]).
 #[wasm_bindgen]
-pub fn lngi_state(elapsed_ms: f64, mode: &str) -> Result<JsValue, JsValue> {
+pub fn lngi_step(elapsed_ms: f64) -> Result<JsValue, JsValue> {
     LNGI.with(|cell| {
         let mut l = cell.borrow_mut();
         let s = l.step(elapsed_ms);
         let n = l.btbm();
-        let state = LngiState {
-            ordinal: render(n, &s.expr, mode),
-            next_ordinal: render(n, &s.next, mode),
+        let state = StepState {
+            ordinal: n.display(&s.expr, DisplayType::Plain),
             percent: 1.0 - s.frac,
         };
         serde_wasm_bindgen::to_value(&state).map_err(|e| JsValue::from_str(&e.to_string()))
     })
 }
 
-/// Parse a display string and re-render it in its `mode` (validation + normalization).
+/// Parse a plain-form ordinal and render it in `mode` (LaTeX when `latex`,
+/// HTML otherwise), keeping at most `max_cols` columns (`0` = no cap).
+/// Throws if the input does not parse.
 #[wasm_bindgen]
-pub fn parse(input: &str, mode: &str) -> Result<String, JsValue> {
+pub fn parse(input: &str, mode: &str, latex: bool, max_cols: u32) -> Result<String, JsValue> {
     let n = Btbm::new();
     let e = n
         .from_display(input)
         .map_err(|e| JsValue::from_str(&format!("parse failed: {e}")))?;
-    Ok(render(&n, &e, mode))
+    Ok(render(&n, &e, mode, format_of(latex), max_cols))
+}
+
+/// The ordinal as Buchholz OCF form, as LaTeX; `None` when it is past what the
+/// notation reaches (or too wide to be worth converting), in which case the
+/// caller shows the ordinary BTBMS form instead.
+#[wasm_bindgen]
+pub fn bocf_latex(plain: &str) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    bocf::bocf_latex(&n, &e)
+}
+
+/// The ordinal as an extended Veblen expression, as LaTeX.
+///
+/// `None` from the Bachmann–Howard ordinal up, where no Veblen normal form
+/// exists; the caller falls back to the BOCF form.
+#[wasm_bindgen]
+pub fn veblen_latex(plain: &str) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    bocf::veblen_latex(&n, &e)
+}
+
+/// The ordinal as a 0-Y sequence, e.g. `1,2,4,8`.
+///
+/// `None` once a column carries a nested height — the fragment 0-Y cannot
+/// express — in which case the caller shows the ordinary BTBMS form.
+#[wasm_bindgen]
+pub fn zero_y(plain: &str) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    convert::zero_y(&n, &e)
+}
+
+/// The ordinal as triangular BMS ("DBMS"), e.g. `(0)(1,1)(2,2,2)`.
+///
+/// `None` under the same condition as [`zero_y`].
+#[wasm_bindgen]
+pub fn dbms(plain: &str) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    convert::triangular(&n, &e)
+}
+
+/// The ordinal as a 1-Y / ω-Y sequence, e.g. `1,2,4,8`.
+///
+/// `None` under the same condition as [`zero_y`] — from SHO up neither
+/// notation can be reached from BTBMS.
+#[wasm_bindgen]
+pub fn one_y(plain: &str) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    convert::one_y(&n, &e)
+}
+
+/// One fundamental-sequence term of an ordinal, as plain text.
+///
+/// The developer page uses it to grow the expansion tree; `None` for a
+/// successor (no fundamental sequence) or an unparseable input.
+#[wasm_bindgen]
+pub fn fs_term(plain: &str, index: i32) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    if !n.is_limit(&e) {
+        return None;
+    }
+    Some(n.display(&n.fs(&e, index as i64), DisplayType::Plain))
+}
+
+/// The fundamental sequence of the whole notation's limit: `family(1)`,
+/// `family(2)`, … as plain strings. Developer tooling only.
+#[wasm_bindgen]
+pub fn families(count: u32) -> String {
+    let n = Btbm::new();
+    let mut out = String::from("[");
+    for k in 1..=count as i64 {
+        if k > 1 {
+            out.push(',');
+        }
+        out.push('"');
+        out.push_str(&n.display(&super::family(k), DisplayType::Plain));
+        out.push('"');
+    }
+    out.push(']');
+    out
+}
+
+/// The value at which an ordinal first appears. Developer tooling only.
+#[wasm_bindgen]
+pub fn ordinal_value(plain: &str) -> Option<f64> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    Lngi::new().search_value(&e)
+}
+
+/// The milestone table as JSON. Used by the developer page only.
+#[wasm_bindgen]
+pub fn milestones() -> String {
+    super::milestones::json()
 }
 
 /// The start timestamp (milliseconds, UTC).

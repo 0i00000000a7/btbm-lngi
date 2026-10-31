@@ -102,8 +102,6 @@ pub fn min_ordinal() -> Expr {
 pub struct LngiStep {
     /// The current ordinal.
     pub expr: Expr,
-    /// The "next" ordinal (current + 1, i.e. a trailing `(0)` appended).
-    pub next: Expr,
     /// How much is left until the next ordinal (the progress bar uses `1 - frac`).
     pub frac: f64,
 }
@@ -130,11 +128,7 @@ impl Lngi {
     pub fn step(&mut self, elapsed_ms: f64) -> LngiStep {
         if elapsed_ms < 0.0 {
             let expr = min_ordinal();
-            return LngiStep {
-                next: append_zero(&expr),
-                expr,
-                frac: 1.0,
-            };
+            return LngiStep { expr, frac: 1.0 };
         }
         self.ordinal_for_value(get_time(elapsed_ms))
     }
@@ -161,21 +155,56 @@ impl Lngi {
     pub fn ordinal_for_value(&self, m: f64) -> LngiStep {
         if m < 2.0 {
             let expr = min_ordinal();
-            return LngiStep {
-                next: append_zero(&expr),
-                expr,
-                frac: 1.0,
-            };
+            return LngiStep { expr, frac: 1.0 };
         }
         let k = m.floor() as i64;
         let x = m - k as f64;
         let alpha = family(k - 1);
         let beta = family(k);
         let (expr, y) = enum_below(&self.btbm, &alpha, &beta, x, 0);
+        self.btbm.trim_below(&expr);
         LngiStep {
-            next: append_zero(&expr),
             expr,
             frac: 1.0 - y,
+        }
+    }
+
+    /// Where in the sequence `target` first appears, as a value.
+    ///
+    /// The ordinal only grows with the value, so this is a plain bisection —
+    /// no need for the fundamental-sequence walk the reference implementation
+    /// uses. Returns `None` when the sequence never reaches `target` exactly
+    /// (it is not a standard ordinal of this notation, or the value is beyond
+    /// what the walk can reach).
+    pub fn search_value(&self, target: &Expr) -> Option<f64> {
+        let reach = |m: f64| self.ordinal_for_value(m).expr;
+        let at = |m: f64| self.btbm.compare(&reach(m), target);
+
+        // Bracket the answer: the value is at least 2, and the walk reaches
+        // further with every doubling.
+        let mut lo = 2.0;
+        let mut hi = 4.0;
+        while at(hi) == Ordering::Less {
+            hi *= 2.0;
+            if hi > 1e12 {
+                return None;
+            }
+        }
+        for _ in 0..200 {
+            let mid = (lo + hi) / 2.0;
+            if at(mid) == Ordering::Less {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+            if hi - lo <= f64::EPSILON * hi {
+                break;
+            }
+        }
+        if at(hi) == Ordering::Equal {
+            Some(hi)
+        } else {
+            None
         }
     }
 }
@@ -203,27 +232,33 @@ fn enum_below(n: &Btbm, alpha: &Expr, beta: &Expr, x: f64, depth: usize) -> (Exp
 
 /// The `l`-th level bounds `(gamma_{l-1}, gamma_l)` of `[alpha, beta)`.
 fn chain_at(n: &Btbm, alpha: &Expr, beta: &Expr, l: i64) -> Option<(Expr, Expr)> {
-    let i0 = min_index_ge(n, beta, alpha)?;
-    let beta_i0 = n.fs(beta, i0);
+    let (i0, beta_i0) = min_index_ge(n, beta, alpha)?;
     // If `beta[i0] == alpha` the levels start at `i0`; otherwise prepend a
     // `[alpha, beta[i0])` segment.
     let aligned = n.compare(&beta_i0, alpha) == Ordering::Equal;
-    let gamma = |k: i64| -> Expr {
-        if k == 0 {
-            alpha.clone()
-        } else if aligned {
-            n.fs(beta, i0 + k)
-        } else {
-            n.fs(beta, i0 + k - 1)
-        }
-    };
-    Some((gamma(l - 1), gamma(l)))
+    // `gamma(0)` is `alpha` itself, so only levels above the first need two
+    // terms — and both come from the same limit, so they share one hash.
+    if l == 1 {
+        let next = if aligned { i0 + 1 } else { i0 };
+        return Some((alpha.clone(), n.fs(beta, next)));
+    }
+    let index_of = |k: i64| if aligned { i0 + k } else { i0 + k - 1 };
+    Some(n.fs_pair(beta, index_of(l - 1), index_of(l)))
 }
 
-/// The least `i` with `fs(beta, i) >= alpha`; `None` if not found within
-/// `MAX_SEARCH`.
-fn min_index_ge(n: &Btbm, beta: &Expr, alpha: &Expr) -> Option<i64> {
-    (0..MAX_SEARCH).find(|&i| n.compare(&n.fs(beta, i), alpha) != Ordering::Less)
+/// The least `i` with `fs(beta, i) >= alpha`, together with that term; `None`
+/// if not found within [`MAX_SEARCH`].
+///
+/// The term itself is returned because the caller needs it next: recomputing it
+/// through the cache would repeat a lookup the scan has already done.
+fn min_index_ge(n: &Btbm, beta: &Expr, alpha: &Expr) -> Option<(i64, Expr)> {
+    for i in 0..MAX_SEARCH {
+        let term = n.fs_probe(beta, i);
+        if n.compare(&term, alpha) != Ordering::Less {
+            return Some((i, term));
+        }
+    }
+    None
 }
 
 fn append_zero(expr: &Expr) -> Expr {
@@ -318,7 +353,6 @@ mod tests {
         // ordinal is `(0)(0)` (value 2).
         let s = l.step(-1.0);
         assert_eq!(n.display(&s.expr, DisplayType::Plain), "(0)");
-        assert_eq!(n.display(&s.next, DisplayType::Plain), "(0)(0)");
         assert!((1.0 - s.frac).abs() < 1e-12, "progress should be 0");
 
         // At the start point (t=0) the value is 2.0 (`get_time(0) = 2`), i.e.
@@ -328,6 +362,28 @@ mod tests {
     }
 
     /// The ordinal is non-decreasing in time.
+    /// Every term the developer page offers as a child has to be a real,
+    /// smaller ordinal that can be displayed and parsed back.
+    #[test]
+    fn fs_terms_are_usable_children() {
+        let n = Btbm::new();
+        for src in ["(0)(1)", "(0)(1)(1)", "(0)(1,1)", "(0)(1,1,1)", "(0)(1^(2))"] {
+            let e = n.from_display(src).expect(src);
+            for i in 0..4 {
+                let term = n.fs(&e, i);
+                assert!(
+                    n.compare(&term, &e) == Ordering::Less,
+                    "{src}[{i}] is not below its parent"
+                );
+                let text = n.display(&term, DisplayType::Plain);
+                assert!(
+                    n.from_display(&text).is_ok(),
+                    "{src}[{i}] renders unparsable text: {text}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn step_is_monotone_over_time() {
         let mut l = Lngi::new();
