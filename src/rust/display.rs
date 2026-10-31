@@ -2,17 +2,15 @@
 
 use super::types::{Column, DisplayType, Entry, Expr, ParseError};
 
-/// Display in plain form; used as the cache key.
-pub(crate) fn data_key(expr: &Expr) -> String {
-    display(expr, DisplayType::Plain)
+pub(crate) fn display(expr: &Expr, ty: DisplayType) -> String {
+    display_parts(expr, ty).join("")
 }
 
-pub(crate) fn display(expr: &Expr, ty: DisplayType) -> String {
-    let mut out = String::new();
-    for col in expr {
-        out.push_str(&display_column(col, ty));
-    }
-    out
+/// Like [`display`], but returns one string per top-level column, so the caller
+/// can lay the columns out as separate, wrappable pieces (a single KaTeX run is
+/// one unbreakable box).
+pub(crate) fn display_parts(expr: &Expr, ty: DisplayType) -> Vec<String> {
+    expr.iter().map(|col| display_column(col, ty)).collect()
 }
 
 fn display_column(col: &Column, ty: DisplayType) -> String {
@@ -37,13 +35,15 @@ fn display_entry(entry: &Entry, ty: DisplayType) -> String {
 }
 
 pub(crate) fn display_marked(expr: &Expr, ty: DisplayType, start_index: i64) -> String {
-    let mut out = String::new();
-    let mut index = start_index;
-    for col in expr {
-        out.push_str(&display_column_marked(col, ty, index));
-        index += 1;
-    }
-    out
+    display_marked_parts(expr, ty, start_index).join("")
+}
+
+/// Like [`display_marked`], but returns one string per top-level column.
+pub(crate) fn display_marked_parts(expr: &Expr, ty: DisplayType, start_index: i64) -> Vec<String> {
+    expr.iter()
+        .enumerate()
+        .map(|(i, col)| display_column_marked(col, ty, start_index + i as i64))
+        .collect()
 }
 
 fn display_column_marked(col: &Column, ty: DisplayType, index: i64) -> String {
@@ -53,7 +53,7 @@ fn display_column_marked(col: &Column, ty: DisplayType, index: i64) -> String {
             DisplayType::Html => {
                 format!("(0)<sub><span style='color:#888'>{index}</span></sub>")
             }
-            DisplayType::Latex => format!("(0)_{{\\color{{gray}}{index}}}"),
+            DisplayType::Latex => format!("(0)_{{\\textcolor{{gray}}{{{index}}}}}"),
         };
     }
     let content: Vec<String> = col
@@ -66,7 +66,7 @@ fn display_column_marked(col: &Column, ty: DisplayType, index: i64) -> String {
         DisplayType::Html => {
             format!("({content})<sub><span style='color:#888'>{index}</span></sub>")
         }
-        DisplayType::Latex => format!("({content})_{{\\color{{gray}}{index}}}"),
+        DisplayType::Latex => format!("({content})_{{\\textcolor{{gray}}{{{index}}}}}"),
     }
 }
 

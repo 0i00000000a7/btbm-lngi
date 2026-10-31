@@ -1,8 +1,9 @@
-import { createApp } from 'vue';
+import { createVaporApp } from 'vue';
 import App from './App.vue';
 import { initWasm } from './core/wasm';
+import 'katex/dist/katex.min.css';
 import './styles.css';
 
 await initWasm();
 
-createApp(App).mount('#app');
+createVaporApp(App).mount('#app');
