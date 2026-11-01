@@ -10,11 +10,15 @@ import init, {
     fs_term,
     lngi_step,
     milestones,
+    ordinal_at_value,
     ordinal_value,
+    remarkable,
+    search_ordinal,
     dbms as triangular,
     one_y,
     parse,
     start_ms,
+    time_at_value,
     veblen_latex,
     zero_y,
 } from '../wasm/btbm_core.js';
@@ -42,9 +46,9 @@ export type DisplayMode =
  * `^{...}` group when LaTeX output is requested.
  */
 export const DISPLAY_MODES: { id: DisplayMode; label: string; labelZh?: string }[] = [
-    { id: 'layer', label: 'BTBMS (Layer)', labelZh: '标记父项 BTBMS' },
-    { id: 'index', label: 'BTBMS (Index)', labelZh: '标记距离 BTBMS' },
-    { id: 'annotated', label: 'BTBMS (Annotated)', labelZh: '显示距离 BTBMS' },
+    { id: 'layer', label: 'BTBMS (Layer)', labelZh: '标记层级 BTBMS' },
+    { id: 'index', label: 'BTBMS (Index)', labelZh: '标记父项 BTBMS' },
+    { id: 'annotated', label: 'BTBMS (Annotated)', labelZh: '显示列标 BTBMS' },
     // BOCF keeps going past EBO as an idea, but this conversion stops there.
     { id: 'bocf', label: 'BOCF (before EBO)', labelZh: 'BOCF（EBO 之前）' },
     { id: 'veblen', label: 'Veblen' },
@@ -93,6 +97,38 @@ export function familyChain(count: number): string[] {
 /** The value at which an ordinal first appears (`null` if it never does). */
 export function ordinalValue(plain: string): number | null {
     return ordinal_value(plain) ?? null;
+}
+
+/**
+ * The value at which an ordinal first appears, through the shared walk.
+ *
+ * Same result as [`ordinalValue`], but the search reuses the memoized
+ * fundamental sequences, which is what makes it usable on every keystroke.
+ *
+ * `layer` picks the reading of the text: converted forms (the Y → BMS output)
+ * give each entry its column's level, while the walk gives it the parent
+ * column.
+ */
+export function searchOrdinal(plain: string, layer: boolean): number | null {
+    return search_ordinal(plain, layer) ?? null;
+}
+
+/** The elapsed time (ms) at which the walk reaches `value`. */
+export function timeAtValue(value: number): number {
+    return time_at_value(value);
+}
+
+/**
+ * The roundest value inside a window of elapsed time: the coarsest landmark
+ * the window contains, or `null` when it holds no ordinal.
+ */
+export function remarkableValue(t0Ms: number, t1Ms: number): number | null {
+    return remarkable(t0Ms, t1Ms) ?? null;
+}
+
+/** The ordinal at `value`, in canonical plain form. */
+export function ordinalAtValue(value: number): string {
+    return ordinal_at_value(value);
 }
 
 /** One entry of the generated milestone table. */

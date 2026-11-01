@@ -1,5 +1,5 @@
 <script setup lang="ts" vapor>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import katex from 'katex';
 import {
     DISPLAY_MODES,
@@ -10,15 +10,25 @@ import {
     dbms,
     type MilestoneRow,
     oneY,
+    ordinalAtValue,
+    remarkableValue,
     renderOrdinal,
+    searchOrdinal,
+    timeAtValue,
     veblenLatex,
     zeroY,
     type DisplayMode,
 } from './core/wasm';
-import { PRE_START_MS, formatDuration, formatMoment, useClock } from './composables/useClock';
+import {
+    PRE_START_MS,
+    formatDuration,
+    formatDurationShort,
+    formatMoment,
+    useClock,
+} from './composables/useClock';
 import { translate } from './core/i18n';
 import { DESC_ZH } from './core/descriptions.zh';
-import { MIN_PANEL_HEIGHT, useSettings } from './composables/useSettings';
+import { MIN_PANEL_HEIGHT, useSettings, type View } from './composables/useSettings';
 
 const clock = useClock();
 const settings = useSettings();
@@ -431,7 +441,9 @@ const isRelative = (atMs: number) =>
 function termHtml(ordinal: string): string {
     if (!ordinal) return ZERO_TEXT;
     try {
-        return renderOrdinal(ordinal, 'index', false, 0);
+        // The table stores the walk's own spelling; the level reading is what
+        // BMS writers expect, and it is what the conversion produces.
+        return renderOrdinal(ordinal, 'layer', false, 0);
     } catch {
         return ordinal.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
@@ -499,12 +511,26 @@ const shownDesc = computed(() => {
     return settings.lang.value === 'zh' ? (DESC_ZH[m.ordinal] ?? m.desc) : m.desc;
 });
 
+/** A signed distance in the chosen language: `3 years away` / `还有 3 年`. */
+function away(deltaMs: number): string {
+    const d = formatDuration(deltaMs, settings.lang.value);
+    return settings.lang.value === 'zh' ? `还有 ${d}` : `${d} away`;
+}
+
 /** Distance to the shown landmark, in the chosen language. */
 const awayText = computed(() => {
     const m = shown.value;
-    if (!m) return '';
-    const d = formatDuration(m.atMs - clock.elapsedMs.value, settings.lang.value);
-    return settings.lang.value === 'zh' ? `还有 ${d}` : `${d} away`;
+    return m ? away(m.atMs - clock.elapsedMs.value) : '';
+});
+
+/**
+ * The right half of the hero caption: time since the start, or — with the
+ * countdown on — the time left before the next landmark.
+ */
+const timeCaption = computed(() => {
+    const next = nextMilestone.value;
+    if (!settings.countdown.value || !next) return elapsedText.value;
+    return away(next.atMs - clock.elapsedMs.value);
 });
 
 /**
@@ -581,6 +607,16 @@ function jumpTo(atMs: number) {
 // the interesting part of a 133-entry list is where the walk actually is.
 onMounted(() => scrollToIndex(Math.max(0, nextIndex.value - 1)));
 
+// The list is destroyed while the bars are showing, so put it back where the
+// walk is when the list returns instead of leaving it at the top.
+watch(
+    () => settings.view.value,
+    (view) => {
+        if (view !== 'list') return;
+        nextTick(() => scrollToIndex(Math.max(0, nextIndex.value - 1)));
+    },
+);
+
 /** UI text in the chosen language; notation names pass through unchanged. */
 const t = (text: string) => translate(settings.lang.value, text);
 
@@ -596,6 +632,194 @@ const heroModeLabel = computed(() =>
     settings.defaultMode.value === 'auto'
         ? `${t('Auto')} · ${modeLabel(heroMode.value)}`
         : modeLabel(heroMode.value),
+);
+
+/**
+ * The milestone card holds two views: the upcoming bars and the full list.
+ * They are two ways of reading the same table, so they share the header and
+ * the detail block above, and only the body switches.
+ */
+const VIEWS: { id: View; label: string }[] = [
+    { id: 'progress', label: 'Progress' },
+    { id: 'list', label: 'List' },
+];
+
+/**
+ * Upcoming landmarks as stacked bars — the "progress" view.
+ *
+ * Each bar covers one stretch (from the previous landmark to its own), so its
+ * fill says how far into that level the walk is, not how far along the whole
+ * timeline. Only the next few are drawn: the rest are centuries away, and the
+ * list below already covers them.
+ */
+const BAR_ROWS = 16;
+
+const barRows = computed(() => {
+    const first = Math.max(0, nextIndex.value);
+    const now = clock.elapsedMs.value;
+    const out: { key: number; term: string; pct: number; left: string; hue: number }[] = [];
+    for (let i = first; i < Math.min(milestones.length, first + BAR_ROWS); i++) {
+        const m = milestones[i];
+        const from = i > 0 ? milestones[i - 1].atMs : 0;
+        const span = m.atMs - from;
+        const ratio = Number.isFinite(span) && span > 0 ? (now - from) / span : 1;
+        out.push({
+            key: i,
+            term: milestoneTerms[i],
+            pct: Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 1,
+            left: Number.isFinite(m.atMs)
+                ? formatDurationShort(m.atMs - now, settings.lang.value)
+                : t('never'),
+            hue: (i * 37) % 360,
+        });
+    }
+    return out;
+});
+
+/**
+ * Ordinal -> moment.
+ *
+ * The walk is monotone in the value, so one lookup settles the arrival time.
+ * The lookup bisects the curve, which is too costly for every keystroke, so
+ * the field is debounced instead of searched on each `input` event.
+ */
+const searchText = ref('');
+const searchQuery = ref('');
+let searchTimer: ReturnType<typeof setTimeout> | undefined;
+
+function onSearchInput(event: Event) {
+    searchText.value = (event.target as HTMLInputElement).value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        searchQuery.value = searchText.value;
+    }, 250);
+}
+
+const search = computed(() => {
+    const text = searchQuery.value.trim();
+    if (!text) return { state: 'idle' as const, atMs: 0 };
+    const value = searchOrdinal(text, settings.searchLayer.value);
+    if (value === null) return { state: 'missing' as const, atMs: 0 };
+    return { state: 'found' as const, atMs: timeAtValue(value) };
+});
+
+const searchAt = computed(() =>
+    search.value.state === 'found'
+        ? formatMoment(START_MS + search.value.atMs, settings.lang.value)
+        : '',
+);
+
+const searchAway = computed(() =>
+    search.value.state === 'found' ? away(search.value.atMs - clock.elapsedMs.value) : '',
+);
+
+/**
+ * Date browser: the roundest ordinal inside a day, a month or a year.
+ *
+ * "Round" is measured by the value's denominator, so the answer is a landmark
+ * (a level boundary of the walk) rather than whichever term happens to be
+ * current at noon.
+ */
+type BrowseUnit = 'day' | 'month' | 'year';
+
+const BROWSE_UNITS: { id: BrowseUnit; label: string; prompt: string }[] = [
+    { id: 'day', label: 'day', prompt: 'the most remarkable ordinal in this day' },
+    { id: 'month', label: 'month', prompt: 'the most remarkable ordinal in this month' },
+    { id: 'year', label: 'year', prompt: 'the most remarkable ordinal in this year' },
+];
+
+const BROWSE_STEPS = [-100, -10, -1, 1, 10, 100];
+
+const browseUnit = ref<BrowseUnit>('day');
+const browseText = ref(formatStamp(Date.now()));
+
+const browseMs = computed(() => parseStamp(browseText.value));
+
+/** The window the browser looks at: the whole day / month / year around `ms`. */
+function windowOf(ms: number, unit: BrowseUnit): [number, number] {
+    const start = new Date(ms);
+    start.setHours(0, 0, 0, 0);
+    if (unit !== 'day') start.setDate(1);
+    if (unit === 'year') start.setMonth(0);
+    const end = new Date(start);
+    if (unit === 'day') end.setDate(end.getDate() + 1);
+    else if (unit === 'month') end.setMonth(end.getMonth() + 1);
+    else end.setFullYear(end.getFullYear() + 1);
+    return [start.getTime(), end.getTime()];
+}
+
+function onBrowseInput(event: Event) {
+    browseText.value = (event.target as HTMLInputElement).value;
+}
+
+/** Move the browsed date by `step` units (a year, a month or a day). */
+function stepBrowse(step: number) {
+    const ms = browseMs.value;
+    if (ms === null) return;
+    const d = new Date(ms);
+    if (browseUnit.value === 'day') {
+        d.setDate(d.getDate() + step);
+    } else if (browseUnit.value === 'month') {
+        // Land on the first of the month first: stepping from the 31st would
+        // otherwise skip a month whose length falls short.
+        d.setDate(1);
+        d.setMonth(d.getMonth() + step);
+    } else {
+        d.setDate(1);
+        d.setMonth(0);
+        d.setFullYear(d.getFullYear() + step);
+    }
+    browseText.value = formatStamp(d.getTime());
+}
+
+/**
+ * Hold-to-repeat for the date steppers: one step on press, then a steady
+ * stream after a short delay. Releasing, leaving the button or scrolling the
+ * page stops it.
+ */
+let holdDelay: ReturnType<typeof setTimeout> | undefined;
+let holdRepeat: ReturnType<typeof setInterval> | undefined;
+
+function stopHold() {
+    clearTimeout(holdDelay);
+    clearInterval(holdRepeat);
+    holdDelay = undefined;
+    holdRepeat = undefined;
+}
+
+function startHold(step: number) {
+    stopHold();
+    stepBrowse(step);
+    holdDelay = setTimeout(() => {
+        holdRepeat = setInterval(() => stepBrowse(step), 60);
+    }, 400);
+}
+
+onUnmounted(stopHold);
+
+const browse = computed(() => {
+    const ms = browseMs.value;
+    if (ms === null) return { state: 'idle' as const, ordinal: '', atMs: 0 };
+    const [from, to] = windowOf(ms, browseUnit.value);
+    const end = to - START_MS;
+    if (end <= 0) return { state: 'empty' as const, ordinal: '', atMs: 0 };
+    const value = remarkableValue(Math.max(0, from - START_MS), end);
+    if (value === null) return { state: 'empty' as const, ordinal: '', atMs: 0 };
+    return { state: 'found' as const, ordinal: ordinalAtValue(value), atMs: timeAtValue(value) };
+});
+
+const browsePrompt = computed(
+    () => t(BROWSE_UNITS.find((u) => u.id === browseUnit.value)!.prompt),
+);
+
+const browseTerm = computed(() =>
+    browse.value.state === 'found' ? termHtml(browse.value.ordinal) : '',
+);
+
+const browseAt = computed(() =>
+    browse.value.state === 'found'
+        ? formatMoment(START_MS + browse.value.atMs, settings.lang.value)
+        : '',
 );
 
 /**
@@ -678,6 +902,44 @@ function startResize(box: Resizable, e: PointerEvent) {
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
 }
+
+/** The narrowest a panel may be dragged: below this an ordinal has no room. */
+const MIN_PANEL_WIDTH = 20;
+
+/**
+ * Drag the right edge of a panel to set its width.
+ *
+ * The value is stored as a percentage of the row, so the layout survives a
+ * window resize. Panels wrap, so two at 50% sit side by side.
+ */
+function startResizeWidth(panel: { width: number }, e: PointerEvent) {
+    e.preventDefault();
+    const row = (e.currentTarget as HTMLElement).closest('.panels');
+    const total = row?.getBoundingClientRect().width ?? 0;
+    if (!total) return;
+
+    const startX = e.clientX;
+    const startWidth = panel.width;
+    let frame = 0;
+
+    const move = (ev: PointerEvent) => {
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+            const delta = ((ev.clientX - startX) / total) * 100;
+            panel.width = Math.min(100, Math.max(MIN_PANEL_WIDTH, Math.round(startWidth + delta)));
+            frame = 0;
+        });
+    };
+    const up = () => {
+        if (frame) cancelAnimationFrame(frame);
+        frame = 0;
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+}
 </script>
 
 <template>
@@ -715,7 +977,13 @@ function startResize(box: Resizable, e: PointerEvent) {
                 <div class="bar"><div class="fill" :style="{ width: main.percent * 100 + '%' }" /></div>
                 <div class="caption">
                     <span><b>{{ (main.percent * 100).toFixed(3) }}%</b> {{ t('to next ordinal') }}</span>
-                    <span>{{ elapsedText }}</span>
+                    <button
+                        class="caption-toggle"
+                        :title="t('Switch between elapsed and remaining time')"
+                        @click="settings.countdown.value = !settings.countdown.value"
+                    >
+                        {{ timeCaption }}
+                    </button>
                 </div>
             </div>
 
@@ -723,7 +991,11 @@ function startResize(box: Resizable, e: PointerEvent) {
 
         <!-- Stay visible while rewound into the pre-start stretch: hiding it there
              would also hide the only way back to live. -->
-        <section v-if="started || rewinding || isDev" class="rewind-card">
+        <section
+            v-if="started || rewinding || isDev"
+            class="rewind-card"
+            :class="{ collapsed: settings.collapsedCards.value.includes('rewind') }"
+        >
             <div class="section-head">
                 <h2>
                     <button
@@ -764,7 +1036,7 @@ function startResize(box: Resizable, e: PointerEvent) {
                     {{ t(unit.label) }}
                 </button>
                 <button class="ghost" :disabled="clock.atLive.value" @click="clock.goLive()">
-                    {{ t('Back to live') }}
+                    {{ t('Reset time') }}
                 </button>
             </div>
             <div class="rewind-reels">
@@ -808,12 +1080,16 @@ function startResize(box: Resizable, e: PointerEvent) {
                         @input="clock.timeOffsetMs.value = Number(($event.target as HTMLInputElement).value) * 1000"
                     />
                 </label>
-                <button class="ghost" @click="clock.reset()">{{ t('Reset time') }}</button>
+                <button class="ghost" @click="clock.reset()">{{ t('Reset clock') }}</button>
             </div>
             </template>
         </section>
 
-        <section v-if="milestones.length" class="milestone-card">
+        <section
+            v-if="milestones.length"
+            class="milestone-card"
+            :class="{ collapsed: settings.collapsedCards.value.includes('milestones') }"
+        >
             <div class="section-head">
                 <h2>
                     <button
@@ -866,7 +1142,32 @@ function startResize(box: Resizable, e: PointerEvent) {
                 </template>
             </div>
 
-            <ol ref="listEl" class="milestone-list">
+            <nav class="views">
+                <button
+                    v-for="tab in VIEWS"
+                    :key="tab.id"
+                    class="view-tab"
+                    :class="{ on: settings.view.value === tab.id }"
+                    @click="settings.view.value = tab.id"
+                >
+                    {{ t(tab.label) }}
+                </button>
+            </nav>
+
+            <div v-if="settings.view.value === 'progress'" class="mbar-list">
+                <div
+                    v-for="row in barRows"
+                    :key="row.key"
+                    class="mbar"
+                    :style="{ '--hue': row.hue }"
+                >
+                    <span class="mbar-fill" :style="{ width: row.pct * 100 + '%' }" />
+                    <span class="mbar-term" v-html="row.term" />
+                    <span class="mbar-meta">{{ Math.round(row.pct * 100) }}% · {{ row.left }}</span>
+                </div>
+            </div>
+
+            <ol v-else ref="listEl" class="milestone-list">
                 <li
                     v-for="(m, index) in milestones"
                     :key="m.ordinal"
@@ -896,6 +1197,129 @@ function startResize(box: Resizable, e: PointerEvent) {
             </template>
         </section>
 
+        <section
+            class="search-card"
+            :class="{ collapsed: settings.collapsedCards.value.includes('search') }"
+        >
+            <div class="section-head">
+                <h2>
+                    <button
+                        class="fold"
+                        :title="t(settings.collapsedCards.value.includes('search') ? 'Expand' : 'Collapse')"
+                        @click="settings.toggleCard('search')"
+                    >
+                        {{ settings.collapsedCards.value.includes('search') ? '▶' : '▼' }}
+                    </button>
+                    {{ t('Search') }}
+                </h2>
+            </div>
+            <template v-if="!settings.collapsedCards.value.includes('search')">
+                <div class="search-block">
+                    <div class="search-row">
+                        <input
+                            class="search-field"
+                            type="text"
+                            spellcheck="false"
+                            autocomplete="off"
+                            :placeholder="t('e.g. (0)(1)(1)')"
+                            :value="searchText"
+                            @input="onSearchInput"
+                        />
+                        <div class="search-units">
+                            <button
+                                class="ghost chip"
+                                :class="{ on: settings.searchLayer.value }"
+                                :title="t('read each entry as its column\'s level')"
+                                @click="settings.searchLayer.value = true"
+                            >
+                                {{ t('Marked level') }}
+                            </button>
+                            <button
+                                class="ghost chip"
+                                :class="{ on: !settings.searchLayer.value }"
+                                :title="t('read each entry as its parent column')"
+                                @click="settings.searchLayer.value = false"
+                            >
+                                {{ t('Marked parent') }}
+                            </button>
+                        </div>
+                        <span class="search-label">{{ t('when is this ordinal reached?') }}</span>
+                    </div>
+                    <div class="search-result">
+                        <span v-if="search.state === 'idle'">
+                            {{ t('Type an ordinal to find its moment.') }}
+                        </span>
+                        <span v-else-if="search.state === 'missing'">
+                            {{ t('not a standard ordinal — the walk never reaches it') }}
+                        </span>
+                        <template v-else>
+                            <span class="search-when">{{ searchAt }}</span>
+                            <span>{{ searchAway }}</span>
+                            <button
+                                v-if="canJump(search.atMs)"
+                                class="ghost"
+                                @click="jumpTo(search.atMs)"
+                            >
+                                {{ t('↩ jump to 10 seconds before this landmark') }}
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="search-block">
+                    <div class="search-row">
+                        <input
+                            class="search-field"
+                            type="text"
+                            spellcheck="false"
+                            autocomplete="off"
+                            placeholder="YYYY-MM-DD"
+                            :value="browseText"
+                            @input="onBrowseInput"
+                        />
+                        <div class="search-units">
+                            <button
+                                v-for="u in BROWSE_UNITS"
+                                :key="u.id"
+                                class="ghost chip"
+                                :class="{ on: browseUnit === u.id }"
+                                @click="browseUnit = u.id"
+                            >
+                                {{ t(u.label) }}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="search-steps">
+                        <button
+                            v-for="s in BROWSE_STEPS"
+                            :key="s"
+                            class="ghost chip"
+                            @pointerdown.prevent="startHold(s)"
+                            @pointerup="stopHold"
+                            @pointerleave="stopHold"
+                            @pointercancel="stopHold"
+                            @keydown.enter="stepBrowse(s)"
+                        >
+                            {{ s > 0 ? '+' + s : s }}
+                        </button>
+                    </div>
+                    <div class="search-result">
+                        <span v-if="browse.state === 'idle'">
+                            {{ t('Type a date to look around it.') }}
+                        </span>
+                        <span v-else-if="browse.state === 'empty'">
+                            {{ t('no ordinal in this window') }}
+                        </span>
+                        <template v-else>
+                            <span>{{ browsePrompt }}</span>
+                            <span class="search-when" v-html="browseTerm" />
+                            <span>{{ browseAt }}</span>
+                        </template>
+                    </div>
+                </div>
+            </template>
+        </section>
+
         <section class="stats">
             <div class="stat">
                 <div class="label">{{ t('Running at') }}</div>
@@ -913,7 +1337,10 @@ function startResize(box: Resizable, e: PointerEvent) {
                     v-for="panel in settings.panels.value"
                     :key="panel.id"
                     class="panel"
-                    :style="{ flexBasis: `calc(${panel.width}% - 12px)`, '--hue': panel.hue }"
+                    :style="{
+                        flexBasis: `calc(${panel.width}% - ${((100 - panel.width) / 100) * 12}px)`,
+                        '--hue': panel.hue,
+                    }"
                 >
                     <div class="panel-head">
                         <button
@@ -959,9 +1386,57 @@ function startResize(box: Resizable, e: PointerEvent) {
                         :title="t('Drag to resize')"
                         @pointerdown="startResize(panel, $event)"
                     />
+                    <div
+                        class="panel-width"
+                        :title="t('Drag to resize')"
+                        @pointerdown="startResizeWidth(panel, $event)"
+                    />
                 </div>
             </div>
         </section>
+
+        <footer class="credits">
+            <h2>{{ t('Credits') }}</h2>
+            <div class="credit-groups">
+                <section class="credit-group">
+                    <h3>{{ t('The coders') }}</h3>
+                    <ul>
+                        <li>
+                            <b>0i00000000a7</b>
+                        </li>
+                    </ul>
+                </section>
+                <section class="credit-group">
+                    <h3>{{ t('The notation') }}</h3>
+                    <ul>
+                        <li>
+                            <b>Bubby3</b>
+                            <span>{{ t('the idea') }}</span>
+                        </li>
+                        <li>
+                            <b>Smilelee-lyx</b>
+                            <span>{{ t('the definition and the expander') }}</span>
+                        </li>
+                    </ul>
+                </section>
+                <section class="credit-group">
+                    <h3>{{ t('The inspiration') }}</h3>
+                    <ul>
+                        <li>
+                            <b>Termiunsfinity</b>
+                            <span>
+                                <a
+                                    href="https://mrredsharkfan.github.io/w-Y-global-lngi/main.html"
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    >ω-Y LNGI</a
+                                >
+                            </span>
+                        </li>
+                    </ul>
+                </section>
+            </div>
+        </footer>
 
         <div v-if="settings.showSettings.value" class="modal-backdrop" @click.self="settings.showSettings.value = false">
             <div class="modal">
@@ -1038,6 +1513,7 @@ function startResize(box: Resizable, e: PointerEvent) {
                 <p class="hint">
                     {{ t('Extra columns are replaced by an ellipsis. Rendering cost grows with the column count, so a cap keeps the frame rate steady.') }}
                 </p>
+
 
                 <button class="primary" @click="settings.showSettings.value = false">{{ t('Close') }}</button>
             </div>

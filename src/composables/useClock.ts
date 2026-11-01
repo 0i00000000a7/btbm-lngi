@@ -150,11 +150,12 @@ export function formatMoment(ms: number, lang: Lang = 'en'): string {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
+        // 24-hour clock in both languages: AM/PM only widens the cell.
+        hourCycle: 'h23',
     });
 }
 
-/** Format milliseconds as `1 year 2 days 3 hours ...` (Chinese has no plurals). */
-export function formatDuration(ms: number, lang: Lang = 'en'): string {
+/** Format milliseconds as `1 year 2 days 3 hours ...` (Chinese has no plurals). */export function formatDuration(ms: number, lang: Lang = 'en'): string {
     if (ms <= 0) return translate(lang, '0 seconds');
     let s = ms / 1000;
     const years = Math.floor(s / (86400 * 365));
@@ -183,4 +184,32 @@ export function formatDuration(ms: number, lang: Lang = 'en'): string {
         );
     }
     return parts.length ? parts.join(' ') : translate(lang, '0 seconds');
+}
+
+/**
+ * Duration with abbreviated units (`2d 2h 14min 52s`), for rows where the full
+ * spelling would wrap. Every non-zero unit is kept — the abbreviations are what
+ * makes it fit, not dropping precision.
+ */
+export function formatDurationShort(ms: number, lang: Lang = 'en'): string {
+    if (ms <= 0) return lang === 'zh' ? '0秒' : '0s';
+    let s = Math.floor(ms / 1000);
+    const spans: [number, string, string][] = [];
+    const units: [number, string, string][] = [
+        [31_536_000, 'y', '年'],
+        [86_400, 'd', '天'],
+        [3_600, 'h', '小时'],
+        [60, 'min', '分'],
+        [1, 's', '秒'],
+    ];
+    for (const [size, en, zh] of units) {
+        const v = Math.floor(s / size);
+        s -= v * size;
+        // Once the span runs into years, seconds are noise.
+        if (size === 1 && spans.length > 0 && spans[0][1] === 'y') continue;
+        if (v > 0) spans.push([v, en, zh]);
+    }
+    return spans
+        .map(([v, en, zh]) => (lang === 'zh' ? `${v}${zh}` : `${v}${en}`))
+        .join(lang === 'zh' ? '' : ' ');
 }

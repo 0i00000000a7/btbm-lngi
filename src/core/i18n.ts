@@ -20,7 +20,8 @@ const ZH: Record<string, string> = {
     // rewind
     Rewind: '回溯',
     'jump to a moment': '跳转到某一时刻',
-    'Back to live': '回到现在',
+    'Reset time': '重置时间',
+    'Reset clock': '重置时钟',
     'Each slider is one digit; pick the granularities you want above.':
         '每个滑块是一位数字；先在上面选好需要的粒度。',
     ago: '前',
@@ -39,7 +40,6 @@ const ZH: Record<string, string> = {
     speed: '速度',
     'offset (s)': '偏移（秒）',
     '0× freezes time; negative runs it backwards': '0× 冻结时间，负数为时间倒流',
-    'Reset time': '重置时间',
     // milestones
     Milestones: '里程碑',
     'Back to where the walk is': '回到行进位置',
@@ -51,6 +51,26 @@ const ZH: Record<string, string> = {
     'Click to look at this landmark': '点击查看该里程碑',
     never: '永不',
     'after start': '开始后',
+    // search
+    Search: '查找',
+    Progress: '进度',
+    List: '列表',
+    'e.g. (0)(1)(1)': '例如 (0)(1)(1)',
+    'when is this ordinal reached?': '这个序数何时到达？',
+    'Marked level': '标记层级',
+    'Marked parent': '标记父项',
+    "read each entry as its column's level": '把每一项读作它所在列的层级',
+    'read each entry as its parent column': '把每一项读作它的父项列',
+    'Type an ordinal to find its moment.': '输入序数，查出它的到达时刻。',
+    'not a standard ordinal — the walk never reaches it': '不是标准序数——行进永远不会到达',
+    'Type a date to look around it.': '输入日期，查看它附近的序数。',
+    'no ordinal in this window': '这个区间里没有序数',
+    day: '日',
+    month: '月',
+    year: '年',
+    'the most remarkable ordinal in this day': '这一天里最显著的序数',
+    'the most remarkable ordinal in this month': '这个月里最显著的序数',
+    'the most remarkable ordinal in this year': '这一年里最显著的序数',
     // stats
     'Running at': '运行于',
     // panels
@@ -66,10 +86,18 @@ const ZH: Record<string, string> = {
     Language: '语言',
     'Default display mode': '默认显示模式',
     'Columns shown (0 = no limit)': '显示列数（0 = 不限制）',
+    'Switch between elapsed and remaining time': '在已用时间和剩余时间之间切换',
     'Extra columns are replaced by an ellipsis. Rendering cost grows with the column count, so a cap keeps the frame rate steady.':
         '超出的列会以省略号代替。渲染开销随列数增长，限制列数可以保持帧率稳定。',
     Close: '关闭',
     Auto: '自动',
+    // credits
+    Credits: '致谢',
+    'The coders': '开发者',
+    'The notation': '记号',
+    'The inspiration': '灵感来源',
+    'the idea': '提出理念',
+    'the definition and the expander': '定义与展开器',
 };
 
 /** Translate an English UI string. Unknown strings pass through unchanged. */

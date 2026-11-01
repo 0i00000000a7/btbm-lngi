@@ -4,10 +4,11 @@
 //! `lngi.js`, but with the BTBMS notation in place of omega-Y, and without
 //! omega-Y's `boost` handling.
 //!
-//! The time curve applies no acceleration or deceleration: `(0)(1^(2))`
-//! (suspected PTO(Z_2)) is only the first term of the fundamental sequence of
-//! the notation's top element `Limit`, not the limit of BTBMS, so it gets no
-//! special dwell time.
+//! The time curve is the reference log curve below `(0)(1^(2))` (suspected
+//! PTO(Z_2)) and runs at twice the pace above it, so the stretch from SHO to
+//! the limit of omega-Y plays out in months rather than millennia. SHO is only
+//! the first term of the fundamental sequence of the notation's top element
+//! `Limit`, not the limit of BTBMS, so it gets no dwell time of its own.
 //!
 //! Internal representation note: `display` prints an entry's `value` plus one,
 //! so the displayed `(0)` is an **empty column** and the displayed `(1)` is
@@ -16,7 +17,7 @@
 use std::cmp::Ordering;
 
 use super::notation::Btbm;
-use super::types::{Entry, Expr};
+use super::types::{DisplayType, Entry, Expr};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,6 +30,18 @@ pub const START_MS: f64 = 1_791_309_600_000.0;
 /// `x = log10(1 + t/864000)/2 + 2`.
 const TIME_SCALE_MS: f64 = 864_000.0;
 
+/// The value where the curve speeds up: `(0)(1^(2))`, the suspected PTO(Z_2).
+///
+/// Everything up to and including SHO keeps its reference time, so the knee
+/// sits exactly on SHO's arrival moment.
+const WARP_FROM: f64 = 4.0;
+
+/// Value units gained per reference unit above [`WARP_FROM`].
+///
+/// `0.5` doubles the walk's pace after SHO: `(0)(1^(2,2)(3,2)(4))` arrives a
+/// year in instead of three and a half years in.
+const WARP_RATE: f64 = 0.5;
+
 /// Termination threshold and depth cap for the recursive enumeration.
 const LEVEL_EPS: f64 = 1e-12;
 const MAX_DEPTH: usize = 100;
@@ -39,14 +52,79 @@ const MAX_SEARCH: i64 = 256;
 // Time curve
 // ---------------------------------------------------------------------------
 
-/// The log value curve (local reference `lngi.js:166`).
-pub fn get_time(t_ms: f64) -> f64 {
+/// The reference log curve (local reference `lngi.js:166`), before the warp.
+fn reference_time(t_ms: f64) -> f64 {
     (1.0 + t_ms / TIME_SCALE_MS).log10() / 2.0 + 2.0
 }
 
-/// Inverse of [`get_time`] (local reference `lngi.js:177`).
-pub fn get_time_inv(x: f64) -> f64 {
+/// Inverse of [`reference_time`] (local reference `lngi.js:177`).
+fn reference_time_inv(x: f64) -> f64 {
     (10f64.powf((x - 2.0) * 2.0) - 1.0) * TIME_SCALE_MS
+}
+
+/// The walk's value -> the argument the reference curve is read at.
+///
+/// Identity up to [`WARP_FROM`], then compressed, so a value above the knee is
+/// reached at the time the reference curve would have reached a lower one.
+fn warp(v: f64) -> f64 {
+    if v <= WARP_FROM {
+        v
+    } else {
+        WARP_FROM + (v - WARP_FROM) * WARP_RATE
+    }
+}
+
+/// Inverse of [`warp`].
+fn unwarp(x: f64) -> f64 {
+    if x <= WARP_FROM {
+        x
+    } else {
+        WARP_FROM + (x - WARP_FROM) / WARP_RATE
+    }
+}
+
+/// The time curve: elapsed milliseconds -> value.
+///
+/// The reference log curve, sped up above [`WARP_FROM`].
+pub fn get_time(t_ms: f64) -> f64 {
+    unwarp(reference_time(t_ms))
+}
+
+/// Inverse of [`get_time`].
+pub fn get_time_inv(v: f64) -> f64 {
+    reference_time_inv(warp(v))
+}
+
+/// The elapsed time at which the walk reaches `value` (inverse of [`get_time`]).
+pub fn time_at_value(value: f64) -> f64 {
+    get_time_inv(value)
+}
+
+/// The roundest value inside the window `[t0_ms, t1_ms]` (elapsed time), or
+/// `None` when the window holds no ordinal at all.
+///
+/// "Round" means the dyadic rational with the smallest denominator: the first
+/// denominator at which the two ends of the window fall into different cells
+/// pins down the grid point between them. Those points are exactly the level
+/// boundaries the enumeration visits, so the answer is a landmark of the
+/// window rather than an arbitrary term inside it.
+pub fn remarkable_value(t0_ms: f64, t1_ms: f64) -> Option<f64> {
+    // Before the start the curve is pinned to value 1, and `get_time` is not
+    // even defined for very negative input.
+    let lo = get_time(t0_ms.max(0.0));
+    let hi = get_time(t1_ms.max(0.0));
+    if !(hi > lo) {
+        return None;
+    }
+    let mut den = 1.0;
+    while (hi * den).floor() == (lo * den).floor() {
+        den *= 2.0;
+        if den > 1e15 {
+            return None;
+        }
+    }
+    let value = (hi * den).floor() / den;
+    (value >= 2.0).then_some(value)
 }
 
 // ---------------------------------------------------------------------------
@@ -169,14 +247,17 @@ impl Lngi {
         }
     }
 
-    /// Where in the sequence `target` first appears, as a value.
+    /// The first value at which the walk has caught up with `target`.
     ///
-    /// The ordinal only grows with the value, so this is a plain bisection —
-    /// no need for the fundamental-sequence walk the reference implementation
-    /// uses. Returns `None` when the sequence never reaches `target` exactly
-    /// (it is not a standard ordinal of this notation, or the value is beyond
-    /// what the walk can reach).
-    pub fn search_value(&self, target: &Expr) -> Option<f64> {
+    /// The ordinal only grows with the value, so this is a plain bisection — no
+    /// need for the fundamental-sequence walk the reference implementation
+    /// uses. `None` when `target` lies past the end of the walk.
+    ///
+    /// The walk is a step function and does not stop at every ordinal: some
+    /// terms are stepped over. For those this returns the value at which the
+    /// walk passes them, and [`ordinal_text`](Self::ordinal_text) at that value
+    /// is the next term it does stop at.
+    pub fn reach_value(&self, target: &Expr) -> Option<f64> {
         let reach = |m: f64| self.ordinal_for_value(m).expr;
         let at = |m: f64| self.btbm.compare(&reach(m), target);
 
@@ -201,11 +282,23 @@ impl Lngi {
                 break;
             }
         }
-        if at(hi) == Ordering::Equal {
-            Some(hi)
-        } else {
-            None
-        }
+        Some(hi)
+    }
+
+    /// Where in the sequence `target` first appears, as a value.
+    ///
+    /// Returns `None` when the walk steps over `target` without stopping on it;
+    /// see [`reach_value`](Self::reach_value) for the value where it passes.
+    pub fn search_value(&self, target: &Expr) -> Option<f64> {
+        let value = self.reach_value(target)?;
+        let at = self.ordinal_for_value(value).expr;
+        (self.btbm.compare(&at, target) == Ordering::Equal).then_some(value)
+    }
+
+    /// The ordinal at `value`, in canonical plain form.
+    pub fn ordinal_text(&self, value: f64) -> String {
+        let step = self.ordinal_for_value(value);
+        self.btbm.display(&step.expr, DisplayType::Plain)
     }
 }
 
@@ -325,6 +418,77 @@ mod tests {
         for t in [0.0, 1.0, 1e3, 8.64e9, 1.7e10] {
             let back = get_time_inv(get_time(t));
             assert!((back - t).abs() <= 1e-6 * (1.0 + t), "t={t} back={back}");
+        }
+    }
+
+    #[test]
+    fn value_round_trips_through_time() {
+        for v in [2.0, 3.0, 3.5, 4.0, 5.25] {
+            let back = get_time(time_at_value(v));
+            assert!((back - v).abs() < 1e-12, "v={v} back={back}");
+        }
+    }
+
+    /// The curve is the reference log up to SHO and twice as fast above it, so
+    /// SHO keeps its moment and everything past it arrives sooner.
+    #[test]
+    fn warp_starts_at_sho() {
+        let day = 86_400_000.0;
+        // SHO keeps its moment: 99.99 days in.
+        assert!((get_time_inv(4.0) / day - 99.99).abs() < 0.01, "SHO moved");
+        for v in [2.0, 3.0, 3.5, 4.0] {
+            assert_eq!(get_time_inv(v), reference_time_inv(v), "v={v}");
+        }
+        // Half a value unit above the knee costs a quarter of a unit's time.
+        assert_eq!(get_time_inv(4.5), reference_time_inv(4.25));
+        // `(0)(1^(2,2)(3,2)(4))` lands about a year in rather than three and a
+        // half years in.
+        assert!(get_time_inv(4.5625) / day < 366.0);
+    }
+
+    #[test]
+    fn ordinal_text_names_the_landmark() {
+        let l = Lngi::new();
+        assert_eq!(l.ordinal_text(2.0), "(0)");
+        assert_eq!(l.ordinal_text(3.0), "(0)(1)");
+        assert_eq!(l.ordinal_text(4.0), "(0)(1^(2))");
+    }
+
+    /// The chosen value has to sit inside the window, on a level boundary.
+    #[test]
+    fn remarkable_picks_a_landmark_inside_the_window() {
+        let day = 86_400_000.0;
+        for start in [0.0, 3000.0 * day, 3e11] {
+            let (t0, t1) = (start, start + day);
+            let v = remarkable_value(t0, t1).expect("the window holds ordinals");
+            let at = time_at_value(v);
+            assert!(at > t0 - 1.0 && at <= t1 + 1.0, "at={at} window=[{t0},{t1}]");
+            // Dyadic with some denominator: `v * 2^40` is a whole number.
+            let scaled = v * 2f64.powi(40);
+            assert_eq!(scaled, scaled.round(), "v={v} is not dyadic");
+            assert!(!Lngi::new().ordinal_text(v).is_empty());
+        }
+    }
+
+    #[test]
+    fn remarkable_declines_before_the_start() {
+        assert!(remarkable_value(-1e9, -1.0).is_none());
+    }
+
+    /// The interactive search agrees with the values the walk is known to hit.
+    #[test]
+    fn search_finds_known_terms() {
+        let n = Btbm::new();
+        let l = Lngi::new();
+        for (text, want) in [
+            ("(0)", 2.0),
+            ("(0)(1)", 3.0),
+            ("(0)(1)(1)", 3.125),
+            ("(0)(1^(2))", 4.0),
+        ] {
+            let e = n.from_display(text).expect(text);
+            let v = l.search_value(&e).expect(text);
+            assert!((v - want).abs() < 1e-9, "{text} -> {v}, want {want}");
         }
     }
 

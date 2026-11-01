@@ -3,7 +3,7 @@
 //! Run with `cargo run --release --example gen_milestones` after editing
 //! `ENTRIES` in `src/rust/milestones.rs`, then commit the generated file.
 
-use btbm_core::{get_time_inv, milestones, Btbm, Lngi};
+use btbm_core::{get_time_inv, milestones, Btbm, DisplayType, Lngi};
 use std::fmt::Write;
 
 /// `{:?}` prints `inf`, which is not a Rust literal.
@@ -29,27 +29,35 @@ fn main() {
 
     for (ordinal, title, desc) in milestones::ENTRIES {
         // The limit is a real ordinal, but not one the walk arrives at.
-        let (value, at) = if ordinal.is_empty() {
+        let (shown, value, at) = if ordinal.is_empty() {
             // Zero: the empty matrix, the point the walk starts from. It is not
             // reached by the curve itself, which begins at `(0)`.
-            (2.0, 0.0)
+            (ordinal.to_string(), 2.0, 0.0)
         } else if *ordinal == "LIMIT" {
-            (f64::INFINITY, f64::INFINITY)
+            (ordinal.to_string(), f64::INFINITY, f64::INFINITY)
         } else {
-            let e = n.from_display(ordinal).expect("parse");
+            // The list is written the way converted forms are written: each
+            // entry is its column's level. The walk works on the parent
+            // reading, so convert first, and store the walk's own spelling —
+            // the app re-derives the level form from it on demand.
+            let parsed = n.from_display(ordinal).expect("parse");
+            let e = n.convert_from_layer(&parsed);
+            let shown = n.display(&e, DisplayType::Plain);
             let value = l
-                .search_value(&e)
-                .unwrap_or_else(|| panic!("{ordinal} never appears in the sequence"));
-            (value, get_time_inv(value))
+                .reach_value(&e)
+                .unwrap_or_else(|| panic!("{ordinal} lies past the end of the sequence"));
+            (shown, value, get_time_inv(value))
         };
         writeln!(
             out,
-            "    Milestone {{ ordinal: {ordinal:?}, title: {title:?}, desc: {desc:?}, value: {}, at_ms: {} }},",
+            "    Milestone {{ ordinal: {shown:?}, title: {title:?}, desc: {desc:?}, value: {}, at_ms: {} }},",
             lit(value),
             lit(at)
         )
         .unwrap();
-        println!("{ordinal:<28} value {value}  at {at}");
+        // `ordinal -> shown` on one line: the Chinese descriptions are keyed by
+        // the stored spelling, so a rename has to be replayed there.
+        println!("{ordinal}\t{shown}\t{value}\t{at}");
     }
     out.push_str("];\n");
 

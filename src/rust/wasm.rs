@@ -212,6 +212,48 @@ pub fn ordinal_value(plain: &str) -> Option<f64> {
     Lngi::new().search_value(&e)
 }
 
+/// The value at which a plain-form ordinal first appears, through the shared
+/// memoized walk.
+///
+/// The search is a bisection over the value, so a warm cache is what makes it
+/// cheap: this is the interactive counterpart of [`ordinal_value`].
+///
+/// `layer` says which of the two marked readings the text uses. Converted
+/// forms (the Y → BMS output, and anything else written the way BMS writes
+/// matrices) give each entry its column's level, while the walk itself gives
+/// it the parent column, so the text has to be converted before it can be
+/// compared.
+#[wasm_bindgen]
+pub fn search_ordinal(plain: &str, layer: bool) -> Option<f64> {
+    let n = Btbm::new();
+    let parsed = n.from_display(plain).ok()?;
+    let e = if layer {
+        n.convert_from_layer(&parsed)
+    } else {
+        parsed
+    };
+    LNGI.with(|cell| cell.borrow().search_value(&e))
+}
+
+/// The elapsed time (ms) at which the walk reaches `value`.
+#[wasm_bindgen]
+pub fn time_at_value(value: f64) -> f64 {
+    super::lngi::time_at_value(value)
+}
+
+/// The roundest value inside `[t0, t1]` (elapsed ms); `None` when the window
+/// holds no ordinal.
+#[wasm_bindgen]
+pub fn remarkable(t0_ms: f64, t1_ms: f64) -> Option<f64> {
+    super::lngi::remarkable_value(t0_ms, t1_ms)
+}
+
+/// The ordinal at `value`, as plain text.
+#[wasm_bindgen]
+pub fn ordinal_at_value(value: f64) -> String {
+    LNGI.with(|cell| cell.borrow().ordinal_text(value))
+}
+
 /// The milestone table as JSON. Used by the developer page only.
 #[wasm_bindgen]
 pub fn milestones() -> String {

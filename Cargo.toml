@@ -1,6 +1,7 @@
 [package]
 name = "btbm-lngi"
 version = "0.1.0"
+description = "LNGI core for the BTBMS ordinal walk: notation, conversions and the time curve."
 edition = "2021"
 license = "MIT"
 publish = false

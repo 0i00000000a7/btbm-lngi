@@ -226,7 +226,8 @@ a.ghost {
 
 /* ---------------------------------------------------------------- rewind */
 
-.milestone-card {
+.milestone-card,
+.search-card {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
@@ -283,7 +284,7 @@ a.ghost {
     list-style: none;
     margin: 2px 0 0;
     padding: 0;
-    max-height: 240px;
+    max-height: min(60vh, 420px);
     overflow-y: auto;
     border-top: 1px solid var(--line);
     font-size: 0.8rem;
@@ -738,6 +739,240 @@ a.ghost {
     color: var(--accent);
 }
 
+/* --------------------------------------------------------------- credits */
+
+.credits {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 0.76rem;
+    color: var(--muted);
+}
+
+.credits h2 {
+    margin: 0;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.credit-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.credit-group h3 {
+    margin: 0 0 5px;
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--fg-soft);
+}
+
+.credit-group ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+}
+
+.credit-group li {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    line-height: 1.5;
+}
+
+.credit-group b {
+    font-weight: 600;
+    color: var(--fg-soft);
+}
+
+.credits a {
+    color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- views */
+
+/* Two readings of the same table, switched inside the card. The pill is only
+   as wide as its two labels so it does not compete with the detail block. */
+.views {
+    display: inline-grid;
+    grid-auto-flow: column;
+    gap: 2px;
+    width: fit-content;
+    padding: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+}
+
+.view-tab {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 4px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.view-tab:hover {
+    color: var(--fg-soft);
+}
+
+.view-tab.on {
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--shadow-sm);
+}
+
+/* Folded cards are a single title row: drop the head's trailing margin and
+   square the padding, so every collapsed card is the same short bar. */
+.rewind-card.collapsed,
+.milestone-card.collapsed,
+.search-card.collapsed {
+    gap: 0;
+    padding-top: 12px;
+    padding-bottom: 12px;
+}
+
+.rewind-card.collapsed .section-head,
+.milestone-card.collapsed .section-head,
+.search-card.collapsed .section-head {
+    margin-bottom: 0;
+}
+
+/* ----------------------------------------------------- milestone bar stack */
+
+.mbar-list {
+    display: grid;
+    gap: 3px;
+    margin-top: 2px;
+}
+
+/* The fill is drawn behind the text, so each row reads as one bar whose width
+   is the progress through *that* stretch, not through the whole timeline. */
+.mbar {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(80px, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 3px 9px;
+    border-radius: 6px;
+    background: var(--surface-2);
+    overflow: hidden;
+    font-size: 0.78rem;
+}
+
+.mbar-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    background: hsl(var(--hue) 72% 55% / 0.16);
+    border-right: 1px solid hsl(var(--hue) 72% 55% / 0.45);
+}
+
+.mbar-term {
+    position: relative;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-top: 5px;
+    margin-top: -5px;
+}
+
+.mbar-term sup {
+    font-size: 0.62em;
+    vertical-align: super;
+    line-height: 0;
+}
+
+.mbar-meta {
+    position: relative;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- search */
+
+.search-block {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.search-block + .search-block {
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+}
+
+.search-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.search-field {
+    flex: 1 1 220px;
+    min-width: 150px;
+    padding: 6px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    color: var(--fg);
+    font: inherit;
+}
+
+.search-field:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.search-label,
+.search-result {
+    font-size: 0.78rem;
+    color: var(--muted);
+}
+
+.search-result {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-height: 1.5em;
+}
+
+.search-when {
+    color: var(--fg);
+    font-size: 0.86rem;
+}
+
+.search-units,
+.search-steps {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.search-steps .chip {
+    min-width: 46px;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+}
+
 /* ----------------------------------------------------------------- stats */
 
 .stats {
@@ -797,7 +1032,10 @@ a.ghost {
 
 .panel {
     min-width: 280px;
-    flex-grow: 1;
+    /* Width comes from the inline `flex-basis` (the drag handle writes it), so
+       the panel must not grow past it. */
+    flex-grow: 0;
+    position: relative;
     border: 1px solid var(--line);
     border-left: 3px solid hsl(var(--hue, 220) 70% 62%);
     border-radius: var(--radius-sm);
@@ -906,6 +1144,57 @@ a.ghost {
 .hero .resize-handle {
     margin: 0 -24px;
     border-radius: 0;
+}
+
+/* Width grip: a vertical strip on the panel's right edge. It reaches a few
+   pixels into the gap so the two panels' grips do not fight for the same
+   pixels. */
+.panel-width {
+    position: absolute;
+    top: 0;
+    right: -7px;
+    bottom: 0;
+    width: 14px;
+    cursor: ew-resize;
+    touch-action: none;
+}
+
+.panel-width::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 6px;
+    width: 2px;
+    height: 22px;
+    margin-top: -11px;
+    border-radius: 999px;
+    background: var(--line-strong);
+    opacity: 0;
+    transition: opacity 120ms ease;
+}
+
+.panel:hover .panel-width::after {
+    opacity: 0.9;
+}
+
+.panel-width:hover::after {
+    background: var(--accent);
+    opacity: 1;
+}
+
+.caption-toggle {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    color: var(--muted);
+    cursor: pointer;
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
+}
+
+.caption-toggle:hover {
+    color: var(--fg-soft);
 }
 
 /* --------------------------------------------------------------- controls */
@@ -1154,8 +1443,7 @@ input:focus-visible {
     color: var(--muted);
 }
 
-.modal .hint {
-    margin: -6px 0 0;
+.modal .hint {    margin: -6px 0 0;
     font-size: 0.72rem;
     line-height: 1.45;
     color: var(--muted);
