@@ -19,6 +19,8 @@ interface Node {
     open: boolean;
     expanded: boolean;
     children: Node[];
+    /** Set once the fundamental sequence runs out: nothing left to append. */
+    done: boolean;
 }
 
 interface Draft {
@@ -229,10 +231,11 @@ function reset() {
 // Browse tree
 // ---------------------------------------------------------------------------
 
-const CHAIN_LENGTH = 8;
+/** How many children one click puts in the tree; `+1` appends more. */
+const CHAIN_LENGTH = 9;
 
 function makeNode(plain: string): Node {
-    return { plain, open: false, expanded: false, children: [] };
+    return { plain, open: false, expanded: false, children: [], done: false };
 }
 
 const roots = ref<Node[]>([makeNode(LIMIT)]);
@@ -256,24 +259,43 @@ const flat = computed(() => {
 /** Clicking a term expands it into its fundamental sequence, like the explorer. */
 function onTerm(node: Node) {
     if (!node.expanded) {
-        const children: Node[] =
-            node.plain === LIMIT
-                ? familyChain(CHAIN_LENGTH).map(makeNode)
-                : (() => {
-                      const out: Node[] = [];
-                      for (let i = 0; i < 8; i++) {
-                          const term = fsTerm(node.plain, i);
-                          if (term === null) break;
-                          out.push(makeNode(term));
-                      }
-                      return out;
-                  })();
+        const children: Node[] = [];
+        if (node.plain === LIMIT) {
+            // The chain of `family(k)` never runs out, so `done` stays false.
+            children.push(...familyChain(CHAIN_LENGTH).map(makeNode));
+        } else {
+            for (let i = 0; i < CHAIN_LENGTH; i++) {
+                const term = fsTerm(node.plain, i);
+                if (term === null) {
+                    node.done = true;
+                    break;
+                }
+                children.push(makeNode(term));
+            }
+        }
         node.children = children;
         node.expanded = true;
         node.open = children.length > 0;
     } else {
         node.open = !node.open;
     }
+    tick.value++;
+}
+
+/**
+ * Append the next term of the fundamental sequence. `LIMIT` has no finite
+ * expression of its own, so its next child is the next `family(k)`.
+ */
+function more(node: Node) {
+    const i = node.children.length;
+    const term = node.plain === LIMIT ? (familyChain(i + 1)[i] ?? null) : fsTerm(node.plain, i);
+    if (term === null) {
+        node.done = true;
+    } else {
+        node.children.push(makeNode(term));
+        node.open = true;
+    }
+    node.expanded = true;
     tick.value++;
 }
 </script>
@@ -346,7 +368,7 @@ function onTerm(node: Node) {
             <summary>Browse from the limit</summary>
             <p class="hint">
                 Click a term to expand it into its fundamental sequence; click again to fold.
-                Starring a term adds it to the list above.
+                <b>+1</b> appends the next term, and starring a term adds it to the list above.
             </p>
             <ul class="tree">
                 <li v-for="row in flat" :key="row.node.plain + row.depth" class="branch">
@@ -375,6 +397,14 @@ function onTerm(node: Node) {
                             {{ marked[row.node.plain] ? '★' : '☆' }}
                         </button>
                         <span v-else class="mark on">★</span>
+                        <button
+                            v-if="row.node.expanded && !row.node.done"
+                            class="more"
+                            title="append the next term of the fundamental sequence"
+                            @click.stop="more(row.node)"
+                        >
+                            +1
+                        </button>
                     </div>
                 </li>
             </ul>
@@ -591,6 +621,20 @@ code {
 
 .mark:hover {
     color: #e8a300;
+}
+
+.more {
+    font-size: 11px;
+    line-height: 1;
+    padding: 2px 6px;
+    color: var(--dev-accent);
+    border-color: transparent;
+    background: transparent;
+    font-variant-numeric: tabular-nums;
+}
+
+.more:hover:not(:disabled) {
+    border-color: var(--dev-line);
 }
 
 .desc {

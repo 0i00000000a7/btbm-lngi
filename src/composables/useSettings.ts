@@ -4,6 +4,12 @@ import { DISPLAY_MODES, type DisplayMode } from '../core/wasm';
 /** The hero's mode setting: a fixed structure, or `auto` (see `App.vue`). */
 export type HeroMode = DisplayMode | 'auto';
 
+/** Which half of the milestone card is showing. */
+export type View = 'progress' | 'list';
+
+/** The three readings the hero caption cycles through. */
+export type CaptionMode = 'ordinal' | 'milestone' | 'elapsed';
+
 export interface Panel {
     id: string;
     mode: DisplayMode;
@@ -38,6 +44,14 @@ interface Persisted {
     rewindUnits: string[];
     /** Cards the user folded away, by id. */
     collapsedCards: string[];
+    /** Which of the lower cards is on screen. */
+    view: View;
+    /** Show the time left to the next landmark instead of the time elapsed. */
+    countdown?: boolean;
+    /** Which reading the hero caption shows; supersedes `countdown`. */
+    captionMode?: CaptionMode;
+    /** Read the search field by column level rather than by parent column. */
+    searchLayer: boolean;
 }
 
 function load(): Persisted | null {
@@ -123,6 +137,14 @@ export function useSettings() {
     const rewindUnits = ref<string[]>(saved?.rewindUnits ?? [...DEFAULT_REWIND_UNITS]);
     /** Folded cards, by id. */
     const collapsedCards = ref<string[]>(saved?.collapsedCards ?? []);
+    /** The visible body of the milestone card. */
+    const view = ref<View>(saved?.view === 'list' ? 'list' : 'progress');
+    /** Which reading the hero caption shows: ordinal, milestone, or elapsed. */
+    const captionMode = ref<CaptionMode>(
+        saved?.captionMode ?? (saved?.countdown ? 'milestone' : 'elapsed'),
+    );
+    /** The search field's reading: level (BMS spelling) or parent (the walk's). */
+    const searchLayer = ref(saved?.searchLayer ?? true);
     const showSettings = ref(false);
 
     function persist() {
@@ -136,6 +158,9 @@ export function useSettings() {
             maxColumns: maxColumns.value,
             rewindUnits: rewindUnits.value,
             collapsedCards: collapsedCards.value,
+            view: view.value,
+            captionMode: captionMode.value,
+            searchLayer: searchLayer.value,
         };
         try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -154,6 +179,9 @@ export function useSettings() {
             maxColumns,
             rewindUnits,
             collapsedCards,
+            view,
+            captionMode,
+            searchLayer,
         ],
         persist,
         { deep: true },
@@ -197,6 +225,9 @@ export function useSettings() {
         maxColumns,
         rewindUnits,
         collapsedCards,
+        view,
+        captionMode,
+        searchLayer,
         toggleCard,
         showSettings,
         addPanel,

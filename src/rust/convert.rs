@@ -30,6 +30,9 @@ fn matrix(layered: &[Column]) -> Option<Matrix> {
         rows = rows.max(c.len());
         out.push(c);
     }
+    // A BMS matrix always has at least the bottom row, even when every column
+    // is the zero column — `(0)` is one empty column here.
+    rows = rows.max(1);
     for col in &mut out {
         col.resize(rows, 0);
     }
@@ -41,10 +44,10 @@ fn matrix(layered: &[Column]) -> Option<Matrix> {
 // ---------------------------------------------------------------------------
 
 /// `1,2,4,…`: one count per column, accumulated up the rows.
-fn bms_to_0y(m: &Matrix) -> String {
+fn bms_to_0y_values(m: &Matrix) -> Vec<i64> {
     let cols = m.len();
     if cols == 0 {
-        return String::new();
+        return Vec::new();
     }
     let rows = m[0].len();
 
@@ -67,10 +70,18 @@ fn bms_to_0y(m: &Matrix) -> String {
     }
 
     result
+}
+
+fn join_values(values: &[i64]) -> String {
+    values
         .iter()
         .map(|v| v.to_string())
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn bms_to_0y(m: &Matrix) -> String {
+    join_values(&bms_to_0y_values(m))
 }
 
 // ---------------------------------------------------------------------------
@@ -384,15 +395,110 @@ pub fn triangular(n: &Btbm, expr: &Expr) -> Option<String> {
 /// notation stops anyway.
 pub fn one_y(n: &Btbm, expr: &Expr) -> Option<String> {
     let m = matrix(&n.convert_to_layer(expr))?;
+    Some(join_values(&one_y_values(&m)?))
+}
+
+/// The ω-Y sequence behind [`one_y`], as numbers (the Vulcaniz bound needs to
+/// compare them).
+fn one_y_values(m: &Matrix) -> Option<Vec<i64>> {
     if m.is_empty() {
-        return Some(String::new());
+        return Some(Vec::new());
     }
-    let mut tri = bms_to_triangular(&m)?;
+    let mut tri = bms_to_triangular(m)?;
     let rows = tri.iter().map(Vec::len).max().unwrap_or(0);
     for col in &mut tri {
         col.resize(rows, 0);
     }
-    Some(bms_to_0y(&tri))
+    Some(bms_to_0y_values(&tri))
+}
+
+// ---------------------------------------------------------------------------
+// BMS → Vulcaniz
+// ---------------------------------------------------------------------------
+
+/// The reference stops Vulcaniz at the `1,2,4,…,512` tower: the correspondence
+/// below it was checked, above it is unproven.
+const VULCANIZ_LIMIT: [i64; 10] = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512];
+
+/// Lexicographic comparison of two integer sequences; a strict prefix is less.
+fn sequence_less(a: &[i64], b: &[i64]) -> bool {
+    for i in 0..a.len().min(b.len()) {
+        if a[i] != b[i] {
+            return a[i] < b[i];
+        }
+    }
+    a.len() < b.len()
+}
+
+/// BMS → PMS: each entry becomes the distance to the last column whose entry
+/// one row lower was the previous depth (the "marked distance" reading).
+fn bms_to_pms(m: &Matrix) -> Option<Matrix> {
+    let cols = m.len();
+    if cols == 0 {
+        return Some(Vec::new());
+    }
+    let rows = m[0].len();
+    let max = m.iter().flat_map(|c| c.iter()).copied().max().unwrap_or(0) as usize;
+    // Per row, the last 1-based column index seen at each depth.
+    let mut last = vec![vec![0i64; max + 1]; rows];
+    let mut out = vec![vec![0i64; rows]; cols];
+    for i in 0..cols {
+        for j in 0..rows {
+            let depth = m[i][j] as usize;
+            if depth > 0 {
+                let parent = last[j][depth - 1];
+                if parent == 0 {
+                    return None;
+                }
+                out[i][j] = i as i64 + 1 - parent;
+            }
+            last[j][depth] = i as i64 + 1;
+        }
+    }
+    Some(out)
+}
+
+/// PMS → Vulcaniz: for each column, the height of every entry's parent chain,
+/// flattened into one integer sequence.
+fn pms_to_vz(m: &Matrix) -> String {
+    let cols = m.len();
+    let rows = m.first().map(Vec::len).unwrap_or(0);
+    let mut sequence: Vec<i64> = Vec::new();
+    for i in 0..cols {
+        let mut heights: Vec<i64> = Vec::with_capacity(rows);
+        for j in 0..rows {
+            let mut height = -1i64;
+            let mut index = i as i64 + 1;
+            while index > 0 {
+                height += 1;
+                let dist = m[index as usize - 1][j];
+                index -= if dist != 0 { dist } else { index };
+            }
+            heights.push(height);
+        }
+        while heights.len() > 1 && *heights.last().unwrap() == 0 {
+            heights.pop();
+        }
+        let v = heights[0] + 1;
+        sequence.push(v);
+        for h in &heights[1..] {
+            sequence.push(v + h + 1);
+        }
+    }
+    join_values(&sequence)
+}
+
+/// The ordinal as a Vulcaniz sequence, e.g. `1,2,4,4`.
+///
+/// `None` outside the fragment the reference covers (the `1,2,4,…,512` tower
+/// and beyond), where the caller falls back to the BTBMS form.
+pub fn vulcaniz(n: &Btbm, expr: &Expr) -> Option<String> {
+    let m = matrix(&n.convert_to_layer(expr))?;
+    if !sequence_less(&one_y_values(&m)?, &VULCANIZ_LIMIT) {
+        return None;
+    }
+    let pms = bms_to_pms(&m)?;
+    Some(pms_to_vz(&pms))
 }
 
 #[cfg(test)]
@@ -461,6 +567,34 @@ mod tests {
         for (src, want) in cases {
             assert_eq!(one_y(&n, &term(&n, src)).as_deref(), Some(want), "{src}");
         }
+    }
+
+    /// Vulcaniz: the reference's PMS pass, then the parent-chain heights.
+    #[test]
+    fn vulcaniz_sequence() {
+        let n = Btbm::new();
+        let cases = [
+            ("(0)", "1"),
+            ("(0)(1)", "1,2"),
+            ("(0)(1,1)", "1,2,4"),
+            ("(0)(1,1)(2,1)", "1,2,4,3,5"),
+            ("(0)(1,1,1)", "1,2,4,4"),
+            ("(0)(1,1,1)(2,2)", "1,2,4,4,3,6"),
+            ("(0)(1,1,1,1)", "1,2,4,4,4"),
+            ("(0)(1,1,1,1,1)", "1,2,4,4,4,4"),
+        ];
+        for (src, want) in cases {
+            assert_eq!(vulcaniz(&n, &term(&n, src)).as_deref(), Some(want), "{src}");
+        }
+
+        // The reference stops at the `1,2,4,…,512` tower: the tower itself and
+        // everything past it are outside the checked fragment.
+        assert_eq!(
+            one_y(&n, &term(&n, "(0)(1,1,1,1,1,1,1,1,1)")).as_deref(),
+            Some("1,2,4,8,16,32,64,128,256,512")
+        );
+        assert_eq!(vulcaniz(&n, &term(&n, "(0)(1,1,1,1,1,1,1,1,1)")), None);
+        assert_eq!(vulcaniz(&n, &term(&n, "(0)(1^(2))")), None);
     }
 
     /// All three run per frame, so they have to stay well under a frame budget.

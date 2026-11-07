@@ -15,9 +15,15 @@ export const PRE_START_MS = 100_000 * 365 * 86_400_000;
 /**
  * A clock synchronized with the wall clock.
  *
- * - On load, `virtualElapsed = Date.now() - START_MS` (may be negative -> not started);
- * - Afterwards, each frame does `virtualElapsed += dt * timeSpeed`;
- * - Externally, `elapsedMs = virtualElapsed + timeOffsetMs`.
+ * - At 1× the position is re-derived every frame from `Date.now()`, so a page
+ *   that sat in the background — or a machine that slept — catches up on the
+ *   first frame instead of staying behind for good. `performance.now()` is
+ *   allowed to stop while the system is asleep, and integrating it frame by
+ *   frame would bake that loss in;
+ * - at any other speed it integrates `dt * timeSpeed` instead, because
+ *   `Date.now()` only ticks in whole milliseconds and at 10⁸× one of those is
+ *   more than a day of walking;
+ * - externally, `elapsedMs = virtualElapsed + timeOffsetMs`.
  *
  * `driftMs` accumulates `dt * (timeSpeed - 1)`, so the distance from the live
  * position is `timeOffsetMs + driftMs`: accelerating the clock moves the view
@@ -44,8 +50,14 @@ export function useClock() {
     const tick = (now: number) => {
         const dt = now - last;
         last = now;
-        virtualElapsed.value += dt * timeSpeed.value;
-        driftMs.value += dt * (timeSpeed.value - 1);
+        if (timeSpeed.value === 1) {
+            // Normal speed: the wall clock is the source of truth, so nothing
+            // is accumulated and a gap (background tab, sleep) closes at once.
+            virtualElapsed.value = Date.now() - START_MS + driftMs.value;
+        } else {
+            virtualElapsed.value += dt * timeSpeed.value;
+            driftMs.value += dt * (timeSpeed.value - 1);
+        }
         elapsedMs.value = virtualElapsed.value + timeOffsetMs.value;
 
         frames += 1;
@@ -150,11 +162,12 @@ export function formatMoment(ms: number, lang: Lang = 'en'): string {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
+        // 24-hour clock in both languages: AM/PM only widens the cell.
+        hourCycle: 'h23',
     });
 }
 
-/** Format milliseconds as `1 year 2 days 3 hours ...` (Chinese has no plurals). */
-export function formatDuration(ms: number, lang: Lang = 'en'): string {
+/** Format milliseconds as `1 year 2 days 3 hours ...` (Chinese has no plurals). */export function formatDuration(ms: number, lang: Lang = 'en'): string {
     if (ms <= 0) return translate(lang, '0 seconds');
     let s = ms / 1000;
     const years = Math.floor(s / (86400 * 365));
@@ -183,4 +196,44 @@ export function formatDuration(ms: number, lang: Lang = 'en'): string {
         );
     }
     return parts.length ? parts.join(' ') : translate(lang, '0 seconds');
+}
+
+/**
+ * Duration with abbreviated units (`2d 2h 14min 52s`), for rows where the full
+ * spelling would wrap. Every non-zero unit is kept — the abbreviations are what
+ * makes it fit, not dropping precision.
+ */
+export function formatDurationShort(ms: number, lang: Lang = 'en'): string {
+    if (ms <= 0) return lang === 'zh' ? '0秒' : '0s';
+    // A level can end inside the same second the walk is in, so the sub-second
+    // range keeps a reading instead of going blank. Up to ten seconds the
+    // tenths matter — that is the scale a level bar actually moves at.
+    if (ms < 10) return lang === 'zh' ? '0.00秒' : '0.00s';
+    if (ms < 1000) {
+        const hundredths = (Math.floor(ms / 10) / 100).toFixed(2);
+        return lang === 'zh' ? `${hundredths}秒` : `${hundredths}s`;
+    }
+    if (ms < 10_000) {
+        const tenths = (Math.floor(ms / 100) / 10).toFixed(1);
+        return lang === 'zh' ? `${tenths}秒` : `${tenths}s`;
+    }
+    let s = Math.floor(ms / 1000);
+    const spans: [number, string, string][] = [];
+    const units: [number, string, string][] = [
+        [31_536_000, 'y', '年'],
+        [86_400, 'd', '天'],
+        [3_600, 'h', '小时'],
+        [60, 'min', '分'],
+        [1, 's', '秒'],
+    ];
+    for (const [size, en, zh] of units) {
+        const v = Math.floor(s / size);
+        s -= v * size;
+        // Once the span runs into years, seconds are noise.
+        if (size === 1 && spans.length > 0 && spans[0][1] === 'y') continue;
+        if (v > 0) spans.push([v, en, zh]);
+    }
+    return spans
+        .map(([v, en, zh]) => (lang === 'zh' ? `${v}${zh}` : `${v}${en}`))
+        .join(lang === 'zh' ? '' : ' ');
 }

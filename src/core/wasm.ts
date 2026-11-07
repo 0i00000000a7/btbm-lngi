@@ -10,19 +10,38 @@ import init, {
     fs_term,
     lngi_step,
     milestones,
+    ordinal_at_value,
     ordinal_value,
+    remarkable,
+    search_ordinal,
     dbms as triangular,
     one_y,
     parse,
     start_ms,
+    time_at_value,
     veblen_latex,
+    vulcaniz as vulcaniz_seq,
     zero_y,
 } from '../wasm/btbm_core.js';
+
+/** One level of the walk's descent, used by the level bars. */
+export interface LevelBar {
+    /** Canonical plain form of the term the level runs toward. */
+    ordinal: string;
+    /** Progress through the level, `0..1`. */
+    percent: number;
+    /** Elapsed milliseconds at which the level completes. */
+    atMs: number;
+}
 
 /** Result of the computation step: canonical plain form + progress. */
 export interface LngiStep {
     ordinal: string;
+    /** The curve's value at this moment; only the dev build displays it. */
+    value: number;
     percent: number;
+    /** The nested levels the walk is inside, outermost first. */
+    levels: LevelBar[];
 }
 
 /** Display modes: how the ordinal is *structured* (format is a separate flag). */
@@ -34,7 +53,8 @@ export type DisplayMode =
     | 'veblen'
     | 'zeroy'
     | 'dbms'
-    | 'y1';
+    | 'y1'
+    | 'vulcaniz';
 
 /**
  * The available structures. Formatting is orthogonal (`renderOrdinal`'s `latex`
@@ -42,9 +62,9 @@ export type DisplayMode =
  * `^{...}` group when LaTeX output is requested.
  */
 export const DISPLAY_MODES: { id: DisplayMode; label: string; labelZh?: string }[] = [
-    { id: 'layer', label: 'BTBMS (Layer)', labelZh: '标记父项 BTBMS' },
-    { id: 'index', label: 'BTBMS (Index)', labelZh: '标记距离 BTBMS' },
-    { id: 'annotated', label: 'BTBMS (Annotated)', labelZh: '显示距离 BTBMS' },
+    { id: 'layer', label: 'BTBMS (Layer)', labelZh: '标记层级 BTBMS' },
+    { id: 'index', label: 'BTBMS (Index)', labelZh: '标记父项 BTBMS' },
+    { id: 'annotated', label: 'BTBMS (Annotated)', labelZh: '显示列标 BTBMS' },
     // BOCF keeps going past EBO as an idea, but this conversion stops there.
     { id: 'bocf', label: 'BOCF (before EBO)', labelZh: 'BOCF（EBO 之前）' },
     { id: 'veblen', label: 'Veblen' },
@@ -54,6 +74,7 @@ export const DISPLAY_MODES: { id: DisplayMode; label: string; labelZh?: string }
     // the conversion ends rather than where the notation does.
     { id: 'dbms', label: 'DBMS (before SHO)', labelZh: 'DBMS（SHO 之前）' },
     { id: 'y1', label: '1-Y/ω-Y (before SHO)', labelZh: '1-Y/ω-Y（SHO 之前）' },
+    { id: 'vulcaniz', label: 'Vulcaniz' },
 ];
 
 export let START_MS = 0;
@@ -95,6 +116,38 @@ export function ordinalValue(plain: string): number | null {
     return ordinal_value(plain) ?? null;
 }
 
+/**
+ * The value at which an ordinal first appears, through the shared walk.
+ *
+ * Same result as [`ordinalValue`], but the search reuses the memoized
+ * fundamental sequences, which is what makes it usable on every keystroke.
+ *
+ * `layer` picks the reading of the text: converted forms (the Y → BMS output)
+ * give each entry its column's level, while the walk gives it the parent
+ * column.
+ */
+export function searchOrdinal(plain: string, layer: boolean): number | null {
+    return search_ordinal(plain, layer) ?? null;
+}
+
+/** The elapsed time (ms) at which the walk reaches `value`. */
+export function timeAtValue(value: number): number {
+    return time_at_value(value);
+}
+
+/**
+ * The roundest value inside a window of elapsed time: the coarsest landmark
+ * the window contains, or `null` when it holds no ordinal.
+ */
+export function remarkableValue(t0Ms: number, t1Ms: number): number | null {
+    return remarkable(t0Ms, t1Ms) ?? null;
+}
+
+/** The ordinal at `value`, in canonical plain form. */
+export function ordinalAtValue(value: number): string {
+    return ordinal_at_value(value);
+}
+
 /** One entry of the generated milestone table. */
 export interface MilestoneRow {
     ordinal: string;
@@ -123,7 +176,18 @@ export function milestoneRows(): MilestoneRow[] {
 }
 
 export function lngiStep(elapsedMs: number): LngiStep {
-    return lngi_step(elapsedMs) as LngiStep;
+    // The wasm struct is snake_case (`at_ms`); the app speaks camelCase.
+    const raw = lngi_step(elapsedMs) as Omit<LngiStep, 'levels'> & {
+        levels: (Omit<LevelBar, 'atMs'> & { at_ms: number })[];
+    };
+    return {
+        ...raw,
+        levels: raw.levels.map((l) => ({
+            ordinal: l.ordinal,
+            percent: l.percent,
+            atMs: l.at_ms,
+        })),
+    };
 }
 
 /**
@@ -170,6 +234,16 @@ export function dbms(plain: string): string | null {
 /** The ordinal as a 1-Y / ω-Y sequence, or `null` once it is past SHO. */
 export function oneY(plain: string): string | null {
     return one_y(plain) ?? null;
+}
+
+/**
+ * The ordinal as a Vulcaniz sequence, e.g. `1,2,4,4`.
+ *
+ * `null` above the fragment the reference covers — its `1,2,4,…,512` tower —
+ * where the caller falls back to the ordinary BTBMS form.
+ */
+export function vulcanizText(plain: string): string | null {
+    return vulcaniz_seq(plain) ?? null;
 }
 
 export function renderOrdinal(

@@ -2,6 +2,7 @@
   "name": "btbm-lngi",
   "private": true,
   "version": "0.1.0",
+  "description": "Real-time LNGI visualization of the BTBMS ordinal walk, with conversions to weaker notations.",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.24.0",
