@@ -73,7 +73,7 @@ export function useClock() {
     const offsetMs = computed(() => timeOffsetMs.value + driftMs.value);
 
     /** How far into the past the view currently sits (`0` = not behind). */
-    const rewindMs = computed(() => Math.max(0, -offsetMs.value));
+    const rewindMs = computed(() => -offsetMs.value);
 
     /** How far into the future acceleration has pushed the view. */
     const aheadMs = computed(() => Math.max(0, offsetMs.value));
@@ -86,7 +86,7 @@ export function useClock() {
      * view in the future, which the live clock has not reached yet.
      */
     function setRewind(ms: number) {
-        const back = Math.min(Math.max(ms, 0), maxRewindMs.value);
+        const back = ms;
         timeOffsetMs.value = -back - driftMs.value;
     }
 
