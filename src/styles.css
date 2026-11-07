@@ -63,6 +63,9 @@
 html,
 body {
     height: 100%;
+    /* A horizontal drag that runs past a slider must not be picked up as a
+       history swipe by the browser. */
+    overscroll-behavior-x: none;
 }
 
 body {
@@ -297,7 +300,10 @@ body {
     width: var(--level-bar-fill);
     background: hsl(var(--level-bar-hue) 70% 55% / 0.14);
     border-right: 1px solid hsl(var(--level-bar-hue) 70% 55% / 0.4);
-    transition: width 120ms linear;
+    /* No transition: the fill has to jump to its new width on every refresh, or
+       a level that ends gets its reset animated backwards and, at speed, the
+       left edge is never actually seen. Rows are keyed by their term, so a new
+       level starts as a new element at its own width. */
 }
 
 .level-bar-term,
@@ -775,7 +781,7 @@ a.ghost {
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
-    height: 16px;
+    height: 24px;
     margin: 0;
     padding: 0;
     border: 0;
@@ -829,8 +835,12 @@ a.ghost {
     box-shadow: 0 1px 2px rgba(20, 24, 35, 0.22);
 }
 
-.speed-value {
-    min-width: 74px;
+/* Editable: the slider is for sweeping, this is for landing on a value. */
+.speed-input {
+    width: 100%;
+    min-width: 0;
+    padding: 3px 6px;
+    font-size: 0.78rem;
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
@@ -1364,6 +1374,13 @@ input:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
     border-color: var(--accent);
+}
+
+/* A finger on a slider is dragging the thumb, not scrolling the page or
+   swiping back; without this the browser claims the gesture and the thumb
+   stutters — or the whole screen navigates. */
+input[type='range'] {
+    touch-action: none;
 }
 
 /* --------------------------------------------------------- custom dropdown */

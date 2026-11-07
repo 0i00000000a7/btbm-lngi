@@ -41,6 +41,7 @@ const ZH: Record<string, string> = {
     speed: '速度',
     'offset (s)': '偏移（秒）',
     '0× freezes time; negative runs it backwards': '0× 冻结时间，负数为时间倒流',
+    'Type a speed, e.g. 2.5 or -3': '输入速度，如 2.5 或 -3',
     // milestones
     Milestones: '里程碑',
     'Back to where the walk is': '回到行进位置',

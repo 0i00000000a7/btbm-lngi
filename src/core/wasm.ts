@@ -8,6 +8,7 @@ import init, {
     bocf_latex,
     families,
     fs_term,
+    lngi_levels,
     lngi_step,
     milestones,
     ordinal_at_value,
@@ -40,8 +41,6 @@ export interface LngiStep {
     /** The curve's value at this moment; only the dev build displays it. */
     value: number;
     percent: number;
-    /** The nested levels the walk is inside, outermost first. */
-    levels: LevelBar[];
 }
 
 /** Display modes: how the ordinal is *structured* (format is a separate flag). */
@@ -176,18 +175,24 @@ export function milestoneRows(): MilestoneRow[] {
 }
 
 export function lngiStep(elapsedMs: number): LngiStep {
+    return lngi_step(elapsedMs) as LngiStep;
+}
+
+/**
+ * The nested levels the walk is inside, outermost first.
+ *
+ * Separate from `lngiStep` because each level costs a display and an inverse
+ * curve evaluation in the core, and the stack is redrawn far less often than
+ * the frame.
+ */
+export function lngiLevels(elapsedMs: number): LevelBar[] {
     // The wasm struct is snake_case (`at_ms`); the app speaks camelCase.
-    const raw = lngi_step(elapsedMs) as Omit<LngiStep, 'levels'> & {
-        levels: (Omit<LevelBar, 'atMs'> & { at_ms: number })[];
-    };
-    return {
-        ...raw,
-        levels: raw.levels.map((l) => ({
-            ordinal: l.ordinal,
-            percent: l.percent,
-            atMs: l.at_ms,
-        })),
-    };
+    const raw = lngi_levels(elapsedMs) as (Omit<LevelBar, 'atMs'> & { at_ms: number })[];
+    return raw.map((l) => ({
+        ordinal: l.ordinal,
+        percent: l.percent,
+        atMs: l.at_ms,
+    }));
 }
 
 /**

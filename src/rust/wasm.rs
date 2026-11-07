@@ -92,8 +92,6 @@ struct StepState {
     value: f64,
     /// Progress toward the next ordinal, `0..1` (the bar uses `percent * 100%`).
     percent: f64,
-    /// The nested levels of the walk, outermost first; see [`Lngi::frame`].
-    levels: Vec<LevelBarRow>,
 }
 
 /// One level bar: a level of the walk's descent.
@@ -108,32 +106,50 @@ struct LevelBarRow {
 }
 
 /// Compute the ordinal at `elapsed_ms` (relative to [`START_MS`]).
+///
+/// This runs every frame, so it carries only what the hero needs: the walk's
+/// own term and its progress. The nested levels cost a display and an inverse
+/// curve evaluation each, so they live in [`lngi_levels`] instead.
 #[wasm_bindgen]
 pub fn lngi_step(elapsed_ms: f64) -> Result<JsValue, JsValue> {
     LNGI.with(|cell| {
         let mut l = cell.borrow_mut();
         // Before the start the curve is pinned to `(0)`, whose value is 2.
         let value = if elapsed_ms < 0.0 { 2.0 } else { get_time(elapsed_ms) };
-        let (s, levels) = if elapsed_ms < 0.0 {
-            (l.step(elapsed_ms), Vec::new())
-        } else {
-            l.frame(value)
-        };
+        let s = l.step(elapsed_ms);
         let n = l.btbm();
         let state = StepState {
             ordinal: n.display(&s.expr, DisplayType::Plain),
             value,
             percent: 1.0 - s.frac,
-            levels: levels
+        };
+        serde_wasm_bindgen::to_value(&state).map_err(|e| JsValue::from_str(&e.to_string()))
+    })
+}
+
+/// The nested levels the walk is inside at `elapsed_ms`, outermost first.
+///
+/// Kept apart from [`lngi_step`] because the stack is refreshed far less often
+/// than the frame, and building it is the expensive half of the step.
+#[wasm_bindgen]
+pub fn lngi_levels(elapsed_ms: f64) -> Result<JsValue, JsValue> {
+    LNGI.with(|cell| {
+        let l = cell.borrow();
+        let rows: Vec<LevelBarRow> = if elapsed_ms < 0.0 {
+            Vec::new()
+        } else {
+            let (_, levels) = l.frame(get_time(elapsed_ms));
+            let n = l.btbm();
+            levels
                 .iter()
                 .map(|lvl| LevelBarRow {
                     ordinal: n.display(&lvl.ordinal, DisplayType::Plain),
                     percent: lvl.frac,
                     at_ms: get_time_inv(lvl.end_value),
                 })
-                .collect(),
+                .collect()
         };
-        serde_wasm_bindgen::to_value(&state).map_err(|e| JsValue::from_str(&e.to_string()))
+        serde_wasm_bindgen::to_value(&rows).map_err(|e| JsValue::from_str(&e.to_string()))
     })
 }
 
