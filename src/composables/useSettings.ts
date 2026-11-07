@@ -7,6 +7,9 @@ export type HeroMode = DisplayMode | 'auto';
 /** Which half of the milestone card is showing. */
 export type View = 'progress' | 'list';
 
+/** The three readings the hero caption cycles through. */
+export type CaptionMode = 'ordinal' | 'milestone' | 'elapsed';
+
 export interface Panel {
     id: string;
     mode: DisplayMode;
@@ -44,7 +47,9 @@ interface Persisted {
     /** Which of the lower cards is on screen. */
     view: View;
     /** Show the time left to the next landmark instead of the time elapsed. */
-    countdown: boolean;
+    countdown?: boolean;
+    /** Which reading the hero caption shows; supersedes `countdown`. */
+    captionMode?: CaptionMode;
     /** Read the search field by column level rather than by parent column. */
     searchLayer: boolean;
 }
@@ -134,8 +139,10 @@ export function useSettings() {
     const collapsedCards = ref<string[]>(saved?.collapsedCards ?? []);
     /** The visible body of the milestone card. */
     const view = ref<View>(saved?.view === 'list' ? 'list' : 'progress');
-    /** Count down to the next landmark instead of counting up from the start. */
-    const countdown = ref(saved?.countdown ?? false);
+    /** Which reading the hero caption shows: ordinal, milestone, or elapsed. */
+    const captionMode = ref<CaptionMode>(
+        saved?.captionMode ?? (saved?.countdown ? 'milestone' : 'elapsed'),
+    );
     /** The search field's reading: level (BMS spelling) or parent (the walk's). */
     const searchLayer = ref(saved?.searchLayer ?? true);
     const showSettings = ref(false);
@@ -152,7 +159,7 @@ export function useSettings() {
             rewindUnits: rewindUnits.value,
             collapsedCards: collapsedCards.value,
             view: view.value,
-            countdown: countdown.value,
+            captionMode: captionMode.value,
             searchLayer: searchLayer.value,
         };
         try {
@@ -173,7 +180,7 @@ export function useSettings() {
             rewindUnits,
             collapsedCards,
             view,
-            countdown,
+            captionMode,
             searchLayer,
         ],
         persist,
@@ -219,7 +226,7 @@ export function useSettings() {
         rewindUnits,
         collapsedCards,
         view,
-        countdown,
+        captionMode,
         searchLayer,
         toggleCard,
         showSettings,

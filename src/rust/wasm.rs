@@ -12,7 +12,7 @@ use wasm_bindgen::prelude::*;
 use super::bocf;
 use super::convert;
 use super::display::{display_marked_parts, display_parts};
-use super::lngi::{Lngi, START_MS};
+use super::lngi::{get_time, get_time_inv, Lngi, START_MS};
 use super::notation::Btbm;
 use super::types::{DisplayType, Expr};
 
@@ -88,8 +88,23 @@ fn render(n: &Btbm, e: &Expr, mode: &str, ty: DisplayType, max_cols: u32) -> Str
 struct StepState {
     /// Canonical plain form of the current ordinal.
     ordinal: String,
+    /// The curve's value at this moment, `2` at the start. Shown in dev only.
+    value: f64,
     /// Progress toward the next ordinal, `0..1` (the bar uses `percent * 100%`).
     percent: f64,
+    /// The nested levels of the walk, outermost first; see [`Lngi::frame`].
+    levels: Vec<LevelBarRow>,
+}
+
+/// One level bar: a level of the walk's descent.
+#[derive(Serialize)]
+struct LevelBarRow {
+    /// Canonical plain form of the term the level runs toward.
+    ordinal: String,
+    /// Progress through the level, `0..1`.
+    percent: f64,
+    /// Elapsed milliseconds at which the level completes.
+    at_ms: f64,
 }
 
 /// Compute the ordinal at `elapsed_ms` (relative to [`START_MS`]).
@@ -97,11 +112,26 @@ struct StepState {
 pub fn lngi_step(elapsed_ms: f64) -> Result<JsValue, JsValue> {
     LNGI.with(|cell| {
         let mut l = cell.borrow_mut();
-        let s = l.step(elapsed_ms);
+        // Before the start the curve is pinned to `(0)`, whose value is 2.
+        let value = if elapsed_ms < 0.0 { 2.0 } else { get_time(elapsed_ms) };
+        let (s, levels) = if elapsed_ms < 0.0 {
+            (l.step(elapsed_ms), Vec::new())
+        } else {
+            l.frame(value)
+        };
         let n = l.btbm();
         let state = StepState {
             ordinal: n.display(&s.expr, DisplayType::Plain),
+            value,
             percent: 1.0 - s.frac,
+            levels: levels
+                .iter()
+                .map(|lvl| LevelBarRow {
+                    ordinal: n.display(&lvl.ordinal, DisplayType::Plain),
+                    percent: lvl.frac,
+                    at_ms: get_time_inv(lvl.end_value),
+                })
+                .collect(),
         };
         serde_wasm_bindgen::to_value(&state).map_err(|e| JsValue::from_str(&e.to_string()))
     })
@@ -170,6 +200,17 @@ pub fn one_y(plain: &str) -> Option<String> {
     let n = Btbm::new();
     let e = n.from_display(plain).ok()?;
     convert::one_y(&n, &e)
+}
+
+/// The ordinal as a Vulcaniz sequence, e.g. `1,2,4,4`.
+///
+/// `None` outside the fragment the reference covers (below its
+/// `1,2,4,…,512` tower), where the caller falls back to the BTBMS form.
+#[wasm_bindgen]
+pub fn vulcaniz(plain: &str) -> Option<String> {
+    let n = Btbm::new();
+    let e = n.from_display(plain).ok()?;
+    convert::vulcaniz(&n, &e)
 }
 
 /// One fundamental-sequence term of an ordinal, as plain text.

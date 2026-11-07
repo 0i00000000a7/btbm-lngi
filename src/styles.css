@@ -201,6 +201,7 @@ body {
 .caption {
     display: flex;
     justify-content: space-between;
+    align-items: baseline;
     gap: 12px;
     margin-top: 7px;
     font-size: 0.78rem;
@@ -210,6 +211,111 @@ body {
 .caption b {
     color: var(--fg-soft);
     font-weight: 500;
+}
+
+/* ------------------------------------------------------------ level bars */
+
+/* One row per level of the walk's descent, outermost first. The fill is the
+   progress through that level and the meta is when the level completes, so the
+   stack reads as a countdown at every scale at once. */
+.level-bars {
+    display: grid;
+    gap: 2px;
+    margin-top: 10px;
+    font-size: 0.72rem;
+}
+
+/* Ten rows tall whatever the page holds, so paging — and an empty page — never
+   resizes the card. The rows stay packed at the top: stretching them over the
+   spare height made the stack jump whenever the walk gained or lost a level. */
+.level-bar-rows {
+    display: grid;
+    align-content: start;
+    grid-auto-rows: calc(1.55em + 4px);
+    gap: 2px;
+    min-height: calc(10 * (1.55em + 4px) + 9 * 2px);
+}
+
+.level-bars-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.level-bar-pager {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+}
+
+.level-bar-pager button {
+    font: inherit;
+    font-size: 0.72rem;
+    line-height: 1;
+    padding: 1px 5px;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+}
+
+.level-bar-pager button:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--line-strong);
+}
+
+.level-bar-pager button:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.level-bar-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    height: calc(1.55em + 4px);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    overflow: hidden;
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.level-bar-fill {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--level-bar-fill);
+    background: hsl(var(--level-bar-hue) 70% 55% / 0.14);
+    border-right: 1px solid hsl(var(--level-bar-hue) 70% 55% / 0.4);
+    transition: width 120ms linear;
+}
+
+.level-bar-term,
+.level-bar-meta {
+    position: relative;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.level-bar-meta {
+    font-variant-numeric: tabular-nums;
+}
+
+.level-bar-term sup {
+    font-size: 0.62em;
+    vertical-align: super;
+    line-height: 0;
 }
 
 .top-actions {

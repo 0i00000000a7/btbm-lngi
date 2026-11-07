@@ -16,6 +16,7 @@ const ZH: Record<string, string> = {
     // hero
     'Current ordinal': '当前序数',
     'to next ordinal': '至下一个序数',
+    'to next milestone': '至下一个里程碑',
     'until start': '后开始',
     // rewind
     Rewind: '回溯',
@@ -66,13 +67,19 @@ const ZH: Record<string, string> = {
     'Type a date to look around it.': '输入日期，查看它附近的序数。',
     'no ordinal in this window': '这个区间里没有序数',
     day: '日',
+    hour: '小时',
     month: '月',
     year: '年',
+    'the most remarkable ordinal in this hour': '这一小时里最显著的序数',
     'the most remarkable ordinal in this day': '这一天里最显著的序数',
     'the most remarkable ordinal in this month': '这个月里最显著的序数',
     'the most remarkable ordinal in this year': '这一年里最显著的序数',
     // stats
     'Running at': '运行于',
+    Value: '值',
+    'Level bars': '层级进度条',
+    'Previous page': '上一页',
+    'Next page': '下一页',
     // panels
     Panels: '面板',
     '+ Add panel': '+ 添加面板',
@@ -87,6 +94,7 @@ const ZH: Record<string, string> = {
     'Default display mode': '默认显示模式',
     'Columns shown (0 = no limit)': '显示列数（0 = 不限制）',
     'Switch between elapsed and remaining time': '在已用时间和剩余时间之间切换',
+    'Switch between next ordinal, next milestone and elapsed time': '在下一个序数、下一个里程碑和已用时间之间切换',
     'Extra columns are replaced by an ellipsis. Rendering cost grows with the column count, so a cap keeps the frame rate steady.':
         '超出的列会以省略号代替。渲染开销随列数增长，限制列数可以保持帧率稳定。',
     Close: '关闭',

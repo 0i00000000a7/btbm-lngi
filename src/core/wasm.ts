@@ -20,13 +20,28 @@ import init, {
     start_ms,
     time_at_value,
     veblen_latex,
+    vulcaniz as vulcaniz_seq,
     zero_y,
 } from '../wasm/btbm_core.js';
+
+/** One level of the walk's descent, used by the level bars. */
+export interface LevelBar {
+    /** Canonical plain form of the term the level runs toward. */
+    ordinal: string;
+    /** Progress through the level, `0..1`. */
+    percent: number;
+    /** Elapsed milliseconds at which the level completes. */
+    atMs: number;
+}
 
 /** Result of the computation step: canonical plain form + progress. */
 export interface LngiStep {
     ordinal: string;
+    /** The curve's value at this moment; only the dev build displays it. */
+    value: number;
     percent: number;
+    /** The nested levels the walk is inside, outermost first. */
+    levels: LevelBar[];
 }
 
 /** Display modes: how the ordinal is *structured* (format is a separate flag). */
@@ -38,7 +53,8 @@ export type DisplayMode =
     | 'veblen'
     | 'zeroy'
     | 'dbms'
-    | 'y1';
+    | 'y1'
+    | 'vulcaniz';
 
 /**
  * The available structures. Formatting is orthogonal (`renderOrdinal`'s `latex`
@@ -58,6 +74,7 @@ export const DISPLAY_MODES: { id: DisplayMode; label: string; labelZh?: string }
     // the conversion ends rather than where the notation does.
     { id: 'dbms', label: 'DBMS (before SHO)', labelZh: 'DBMS（SHO 之前）' },
     { id: 'y1', label: '1-Y/ω-Y (before SHO)', labelZh: '1-Y/ω-Y（SHO 之前）' },
+    { id: 'vulcaniz', label: 'Vulcaniz' },
 ];
 
 export let START_MS = 0;
@@ -159,7 +176,18 @@ export function milestoneRows(): MilestoneRow[] {
 }
 
 export function lngiStep(elapsedMs: number): LngiStep {
-    return lngi_step(elapsedMs) as LngiStep;
+    // The wasm struct is snake_case (`at_ms`); the app speaks camelCase.
+    const raw = lngi_step(elapsedMs) as Omit<LngiStep, 'levels'> & {
+        levels: (Omit<LevelBar, 'atMs'> & { at_ms: number })[];
+    };
+    return {
+        ...raw,
+        levels: raw.levels.map((l) => ({
+            ordinal: l.ordinal,
+            percent: l.percent,
+            atMs: l.at_ms,
+        })),
+    };
 }
 
 /**
@@ -206,6 +234,16 @@ export function dbms(plain: string): string | null {
 /** The ordinal as a 1-Y / ω-Y sequence, or `null` once it is past SHO. */
 export function oneY(plain: string): string | null {
     return one_y(plain) ?? null;
+}
+
+/**
+ * The ordinal as a Vulcaniz sequence, e.g. `1,2,4,4`.
+ *
+ * `null` above the fragment the reference covers — its `1,2,4,…,512` tower —
+ * where the caller falls back to the ordinary BTBMS form.
+ */
+export function vulcanizText(plain: string): string | null {
+    return vulcaniz_seq(plain) ?? null;
 }
 
 export function renderOrdinal(

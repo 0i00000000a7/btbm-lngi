@@ -184,6 +184,17 @@ pub struct LngiStep {
     pub frac: f64,
 }
 
+/// One level of the walk's recursive descent, for the level bars.
+#[derive(Clone, Debug)]
+pub struct LevelBar {
+    /// The term the level runs toward.
+    pub ordinal: Expr,
+    /// Progress through the level, `0..1`.
+    pub frac: f64,
+    /// The value at which the level completes.
+    pub end_value: f64,
+}
+
 /// LNGI state: holds the FS memoization cache.
 #[derive(Default)]
 pub struct Lngi {
@@ -239,12 +250,53 @@ impl Lngi {
         let x = m - k as f64;
         let alpha = family(k - 1);
         let beta = family(k);
-        let (expr, y) = enum_below(&self.btbm, &alpha, &beta, x, 0);
+        let (expr, y) = enum_below(&self.btbm, &alpha, &beta, x, 0, k as f64, 1.0, None);
         self.btbm.trim_below(&expr);
         LngiStep {
             expr,
             frac: 1.0 - y,
         }
+    }
+
+    /// [`ordinal_for_value`](Self::ordinal_for_value), plus the levels the walk
+    /// is inside at that moment.
+    ///
+    /// The first row is the whole unit interval `[family(k-1), family(k))`;
+    /// each later row is one geometric level of the recursive decomposition,
+    /// and the last row's progress is the same number `ordinal_for_value`
+    /// reports. Each row also carries the value at which its level completes,
+    /// which is what turns the stack into a countdown.
+    pub fn frame(&self, m: f64) -> (LngiStep, Vec<LevelBar>) {
+        if m < 2.0 {
+            return (self.ordinal_for_value(m), Vec::new());
+        }
+        let k = m.floor() as i64;
+        let x = m - k as f64;
+        let alpha = family(k - 1);
+        let beta = family(k);
+        let mut levels = vec![LevelBar {
+            ordinal: beta.clone(),
+            frac: x,
+            end_value: (k + 1) as f64,
+        }];
+        let (expr, y) = enum_below(
+            &self.btbm,
+            &alpha,
+            &beta,
+            x,
+            0,
+            k as f64,
+            1.0,
+            Some(&mut levels),
+        );
+        self.btbm.trim_below(&expr);
+        (
+            LngiStep {
+                expr,
+                frac: 1.0 - y,
+            },
+            levels,
+        )
     }
 
     /// The first value at which the walk has caught up with `target`.
@@ -304,7 +356,19 @@ impl Lngi {
 
 /// Recursively enumerate inside `[alpha, beta)` by geometric level, returning
 /// `(ordinal, position within the level)`.
-fn enum_below(n: &Btbm, alpha: &Expr, beta: &Expr, x: f64, depth: usize) -> (Expr, f64) {
+///
+/// `start`/`span` are the value range the interval covers, and `trace` — when
+/// given — collects one [`LevelBar`] per level on the way down.
+fn enum_below(
+    n: &Btbm,
+    alpha: &Expr,
+    beta: &Expr,
+    x: f64,
+    depth: usize,
+    start: f64,
+    span: f64,
+    mut trace: Option<&mut Vec<LevelBar>>,
+) -> (Expr, f64) {
     if x <= LEVEL_EPS || depth >= MAX_DEPTH {
         return (alpha.clone(), x);
     }
@@ -316,11 +380,34 @@ fn enum_below(n: &Btbm, alpha: &Expr, beta: &Expr, x: f64, depth: usize) -> (Exp
         Some(v) => v,
         None => return (alpha.clone(), x),
     };
+    let level_span = span * 2f64.powi(-(l as i32));
+    if let Some(out) = trace.as_deref_mut() {
+        out.push(LevelBar {
+            // The level runs from `lo` to `hi`, so the label is `hi`. The
+            // lower bound repeats across consecutive levels (the chain can
+            // hold the same term for a stretch), which would draw identical
+            // rows.
+            ordinal: hi.clone(),
+            frac: y,
+            // The level ends `(1 - y)` of its own width ahead of here.
+            end_value: start + x * span + (1.0 - y) * level_span,
+        });
+    }
     // The interval collapsed to a single point: `hi = lo + 1`.
     if n.compare(&hi, &append_zero(&lo)) == Ordering::Equal {
         return (lo, y);
     }
-    enum_below(n, &lo, &hi, y, depth + 1)
+    let level_start = start + span * (1.0 - 2f64.powi(-(l as i32 - 1)));
+    enum_below(
+        n,
+        &lo,
+        &hi,
+        y,
+        depth + 1,
+        level_start,
+        level_span,
+        trace,
+    )
 }
 
 /// The `l`-th level bounds `(gamma_{l-1}, gamma_l)` of `[alpha, beta)`.
@@ -413,9 +500,47 @@ mod tests {
         assert_eq!(at(3.875), "(0)(1,1,1,1)");
     }
 
+    /// The level stack descends from the unit interval into the levels the
+    /// walk is inside: every row ends later than now, the ends shrink as the
+    /// stack goes deeper, and the stack is capped.
     #[test]
-    fn time_round_trip() {
-        for t in [0.0, 1.0, 1e3, 8.64e9, 1.7e10] {
+    fn level_bars_nest() {
+        let l = Lngi::new();
+        let n = n();
+        for m in [2.5, 3.0625, 3.5, 4.3, 4.75, 5.125] {
+            let (_, levels) = l.frame(m);
+            assert!(!levels.is_empty(), "m={m}");
+            assert_eq!(
+                n.display(&levels[0].ordinal, DisplayType::Plain),
+                n.display(&family(m.floor() as i64), DisplayType::Plain),
+                "the top bar is the unit interval's target"
+            );
+            let mut prev = f64::INFINITY;
+            let mut prev_ord: Option<Expr> = None;
+            for lvl in &levels {
+                assert!(lvl.end_value > m, "m={m} end={}", lvl.end_value);
+                assert!(lvl.end_value <= prev, "m={m} ends must shrink");
+                assert!((0.0..=1.0).contains(&lvl.frac), "m={m} frac={}", lvl.frac);
+                // Each bar is labelled with the term it runs toward, so the
+                // labels must descend: a repeated label means the stack is
+                // showing the same level twice.
+                if let Some(prev_ord) = &prev_ord {
+                    assert_eq!(
+                        n.compare(&lvl.ordinal, prev_ord),
+                        Ordering::Less,
+                        "m={m}: {} repeats {}",
+                        n.display(&lvl.ordinal, DisplayType::Plain),
+                        n.display(prev_ord, DisplayType::Plain)
+                    );
+                }
+                prev_ord = Some(lvl.ordinal.clone());
+                prev = lvl.end_value;
+            }
+        }
+    }
+
+    #[test]
+    fn time_round_trip() {        for t in [0.0, 1.0, 1e3, 8.64e9, 1.7e10] {
             let back = get_time_inv(get_time(t));
             assert!((back - t).abs() <= 1e-6 * (1.0 + t), "t={t} back={back}");
         }

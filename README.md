@@ -15,6 +15,10 @@ walk climbs through `(0)`, `(0)(1)`, `(0)(1)(1)`, … and the display keeps up a
   structure you pick from the display-mode menu: BTBMS itself, or one of the
   weaker notations it converts into. Converted forms have a ceiling; past it the
   BTBMS form is shown instead of a wrong answer.
+- **Level bars** — under the main bar, one row per level the walk is nested
+  in, outermost first: the next family term, the level inside it, and so on.
+  Each row carries its own progress and the moment it completes, so the same
+  instant reads as a countdown at several scales at once.
 - **Milestones** — 127 landmarks from zero up to `LIMIT`, each with its arrival
   time, a description, and a progress bar. Switch between the upcoming-landmark
   bars and the full list. Everything below SHO is imported from the ω-Y LNGI

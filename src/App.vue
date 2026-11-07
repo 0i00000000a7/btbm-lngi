@@ -16,6 +16,7 @@ import {
     searchOrdinal,
     timeAtValue,
     veblenLatex,
+    vulcanizText,
     zeroY,
     type DisplayMode,
 } from './core/wasm';
@@ -28,7 +29,7 @@ import {
 } from './composables/useClock';
 import { translate } from './core/i18n';
 import { DESC_ZH } from './core/descriptions.zh';
-import { MIN_PANEL_HEIGHT, useSettings, type View } from './composables/useSettings';
+import { MIN_PANEL_HEIGHT, useSettings, type CaptionMode, type View } from './composables/useSettings';
 
 const clock = useClock();
 const settings = useSettings();
@@ -116,6 +117,8 @@ function renderMode(mode: DisplayMode, plain: string, cols: number): string {
             return dbms(plain) ?? renderOrdinal(plain, 'index', false, cols);
         case 'y1':
             return oneY(plain) ?? renderOrdinal(plain, 'index', false, cols);
+        case 'vulcaniz':
+            return vulcanizText(plain) ?? renderOrdinal(plain, 'index', false, cols);
         default:
             return renderOrdinal(plain, mode, false, cols);
     }
@@ -132,6 +135,7 @@ const htmlByMode = computed<Record<DisplayMode, string>>(() => {
             zeroy: EMPTY_HTML,
             dbms: EMPTY_HTML,
             y1: EMPTY_HTML,
+            vulcaniz: EMPTY_HTML,
         };
     }
 
@@ -144,6 +148,7 @@ const htmlByMode = computed<Record<DisplayMode, string>>(() => {
         zeroy: '',
         dbms: '',
         y1: '',
+        vulcaniz: '',
     };
     const plain = step.value.ordinal;
     const cols = maxColumns.value;
@@ -163,6 +168,87 @@ const main = computed(() => ({
     html: htmlByMode.value[heroMode.value],
     percent: step.value.percent,
 }));
+
+/**
+ * Level bars: one row per level the walk is currently nested in, outermost
+ * first. The top row counts toward the next family term, the bottom one is the
+ * same progress the main bar shows.
+ *
+ * They refresh on a short timer rather than every frame. The labels only
+ * change when the walk crosses a level boundary, while the widths move
+ * continuously; a stack of ~30 rows at 60 fps is a lot of DOM for a secondary
+ * readout, and 20 fps is indistinguishable here.
+ */
+interface LevelBar {
+    html: string;
+    percent: number;
+    left: string;
+}
+
+const levelBars = ref<LevelBar[]>([]);
+/** Rows per page. The walk descends past thirty levels, so the stack is paged. */
+const LEVEL_BAR_PAGE = 10;
+const levelBarPage = ref(0);
+const levelBarPages = computed(() => Math.max(1, Math.ceil(levelBars.value.length / LEVEL_BAR_PAGE)));
+/**
+ * The walk's depth drifts, so the page the reader picked can end up past the
+ * last one. It stays there and simply renders nothing — snapping back to the
+ * last populated page would yank the stack out from under them.
+ */
+const visibleLevelBars = computed(() =>
+    levelBars.value.slice(
+        levelBarPage.value * LEVEL_BAR_PAGE,
+        (levelBarPage.value + 1) * LEVEL_BAR_PAGE,
+    ),
+);
+/** `3/4` normally; just `3` when the page sits past the last populated one. */
+const levelBarPageLabel = computed(() =>
+    levelBarPage.value + 1 <= levelBarPages.value
+        ? `${levelBarPage.value + 1}/${levelBarPages.value}`
+        : `${levelBarPage.value + 1}`,
+);
+/** Labels repeat heavily as the walk moves inside one level, so memoize them. */
+const levelBarHtml = new Map<string, string>();
+let levelBarStamp = 0;
+let levelBarKey = '';
+
+function levelBarLabel(plain: string): string {
+    const hit = levelBarHtml.get(plain);
+    if (hit !== undefined) return hit;
+    const html = renderOrdinal(plain, 'layer', false, 0);
+    if (levelBarHtml.size > 512) levelBarHtml.clear();
+    levelBarHtml.set(plain, html);
+    return html;
+}
+
+/** A span, switching to scientific notation once years stop being readable. */
+function formatSpan(ms: number): string {
+    if (!Number.isFinite(ms)) return '∞';
+    const years = ms / (365 * 86_400_000);
+    if (years >= 1e5) {
+        const unit = settings.lang.value === 'zh' ? '年' : 'y';
+        return `${years.toExponential(1).replace('e+', 'e')}${unit}`;
+    }
+    return formatDurationShort(ms, settings.lang.value);
+}
+
+watch(
+    step,
+    (s) => {
+        const key = s.levels.map((l) => l.ordinal).join('|');
+        const now = Date.now();
+        if (key === levelBarKey && now - levelBarStamp < 50) return;
+        levelBarStamp = now;
+        levelBarKey = key;
+        const elapsed = clock.elapsedMs.value;
+        levelBars.value = s.levels.map((l) => ({
+            html: levelBarLabel(l.ordinal),
+            percent: l.percent,
+            left: formatSpan(l.atMs - elapsed),
+        }));
+    },
+    { immediate: true },
+);
 
 /** Before the start point the ordinal is pinned to (0); only show the remaining time here. */
 const elapsedText = computed(() =>
@@ -524,14 +610,72 @@ const awayText = computed(() => {
 });
 
 /**
- * The right half of the hero caption: time since the start, or — with the
- * countdown on — the time left before the next landmark.
+ * When the walk reaches the next ordinal: the end of the innermost level it is
+ * nested in. This is the moment the bar above is counting toward — not the next
+ * landmark, which sits further out.
  */
-const timeCaption = computed(() => {
-    const next = nextMilestone.value;
-    if (!settings.countdown.value || !next) return elapsedText.value;
-    return away(next.atMs - clock.elapsedMs.value);
+const nextOrdinalAt = computed(() => {
+    const levels = step.value.levels;
+    return levels.length ? levels[levels.length - 1].atMs : null;
 });
+
+/** A short signed distance: `3.2s away` / `还有 3.2秒`. */
+function awayShort(deltaMs: number): string {
+    // The last levels of the descent end in a fraction of a millisecond; a
+    // rounded `0.00s` would read as "already there", so keep the exponent.
+    const text =
+        deltaMs > 0 && deltaMs < 10
+            ? `${(deltaMs / 1000).toExponential(1)}${settings.lang.value === 'zh' ? '秒' : 's'}`
+            : formatDurationShort(deltaMs, settings.lang.value);
+    return settings.lang.value === 'zh' ? `还有 ${text}` : `${text} away`;
+}
+
+const nextOrdinalAway = computed(() =>
+    nextOrdinalAt.value === null ? '' : awayShort(nextOrdinalAt.value - clock.elapsedMs.value),
+);
+
+/** Position between the previous landmark and the next one, 0..1. */
+const nextMilestonePercent = computed(() => {
+    const next = nextMilestone.value;
+    if (!next) return 1;
+    const index = milestones.indexOf(next);
+    const from = index > 0 ? milestones[index - 1].atMs : 0;
+    const span = next.atMs - from;
+    if (!(span > 0)) return 1;
+    return Math.min(1, Math.max(0, (clock.elapsedMs.value - from) / span));
+});
+
+/** The three readings the caption toggles through, in order. */
+const CAPTION_MODES: CaptionMode[] = ['ordinal', 'milestone', 'elapsed'];
+
+/**
+ * The hero caption: one line, one reading at a time. The percentage and the
+ * time always describe the same thing — the ordinal the bar is counting to,
+ * the next landmark, or the time since the start.
+ */
+const caption = computed(() => {
+    const mode = settings.captionMode.value;
+    if (mode === 'milestone') {
+        const next = nextMilestone.value;
+        return {
+            percent: nextMilestonePercent.value,
+            digits: 2,
+            label: 'to next milestone',
+            time: next ? away(next.atMs - clock.elapsedMs.value) : elapsedText.value,
+        };
+    }
+    return {
+        percent: main.value.percent,
+        digits: 3,
+        label: 'to next ordinal',
+        time: mode === 'ordinal' ? nextOrdinalAway.value || elapsedText.value : elapsedText.value,
+    };
+});
+
+function cycleCaption() {
+    const i = CAPTION_MODES.indexOf(settings.captionMode.value);
+    settings.captionMode.value = CAPTION_MODES[(i + 1) % CAPTION_MODES.length];
+}
 
 /**
  * Position between the landmark before the shown one and the shown one, 0..1.
@@ -720,9 +864,10 @@ const searchAway = computed(() =>
  * (a level boundary of the walk) rather than whichever term happens to be
  * current at noon.
  */
-type BrowseUnit = 'day' | 'month' | 'year';
+type BrowseUnit = 'hour' | 'day' | 'month' | 'year';
 
 const BROWSE_UNITS: { id: BrowseUnit; label: string; prompt: string }[] = [
+    { id: 'hour', label: 'hour', prompt: 'the most remarkable ordinal in this hour' },
     { id: 'day', label: 'day', prompt: 'the most remarkable ordinal in this day' },
     { id: 'month', label: 'month', prompt: 'the most remarkable ordinal in this month' },
     { id: 'year', label: 'year', prompt: 'the most remarkable ordinal in this year' },
@@ -735,9 +880,15 @@ const browseText = ref(formatStamp(Date.now()));
 
 const browseMs = computed(() => parseStamp(browseText.value));
 
-/** The window the browser looks at: the whole day / month / year around `ms`. */
+/** The window the browser looks at: the whole hour / day / month / year around `ms`. */
 function windowOf(ms: number, unit: BrowseUnit): [number, number] {
     const start = new Date(ms);
+    if (unit === 'hour') {
+        start.setMinutes(0, 0, 0);
+        const end = new Date(start);
+        end.setHours(end.getHours() + 1);
+        return [start.getTime(), end.getTime()];
+    }
     start.setHours(0, 0, 0, 0);
     if (unit !== 'day') start.setDate(1);
     if (unit === 'year') start.setMonth(0);
@@ -752,12 +903,14 @@ function onBrowseInput(event: Event) {
     browseText.value = (event.target as HTMLInputElement).value;
 }
 
-/** Move the browsed date by `step` units (a year, a month or a day). */
+/** Move the browsed date by `step` units (an hour, a day, a month or a year). */
 function stepBrowse(step: number) {
     const ms = browseMs.value;
     if (ms === null) return;
     const d = new Date(ms);
-    if (browseUnit.value === 'day') {
+    if (browseUnit.value === 'hour') {
+        d.setHours(d.getHours() + step);
+    } else if (browseUnit.value === 'day') {
         d.setDate(d.getDate() + step);
     } else if (browseUnit.value === 'month') {
         // Land on the first of the month first: stepping from the 31st would
@@ -976,15 +1129,63 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
             <div class="progress">
                 <div class="bar"><div class="fill" :style="{ width: main.percent * 100 + '%' }" /></div>
                 <div class="caption">
-                    <span><b>{{ (main.percent * 100).toFixed(3) }}%</b> {{ t('to next ordinal') }}</span>
+                    <span><b>{{ (caption.percent * 100).toFixed(caption.digits) }}%</b> {{ t(caption.label) }}</span>
                     <button
                         class="caption-toggle"
-                        :title="t('Switch between elapsed and remaining time')"
-                        @click="settings.countdown.value = !settings.countdown.value"
+                        :title="t('Switch between next ordinal, next milestone and elapsed time')"
+                        @click="cycleCaption"
                     >
-                        {{ timeCaption }}
+                        {{ caption.time }}
                     </button>
                 </div>
+            </div>
+
+            <div v-if="levelBars.length > 1" class="level-bars">
+                <div class="level-bars-head">
+                    <button
+                        class="fold"
+                        :title="t(settings.collapsedCards.value.includes('levelBars') ? 'Expand' : 'Collapse')"
+                        @click="settings.toggleCard('levelBars')"
+                    >
+                        {{ settings.collapsedCards.value.includes('levelBars') ? '▶' : '▼' }}
+                    </button>
+                    <span>{{ t('Level bars') }}</span>
+                    <div
+                        v-if="!settings.collapsedCards.value.includes('levelBars')"
+                        class="level-bar-pager"
+                    >
+                        <button
+                            :title="t('Previous page')"
+                            :disabled="levelBarPage === 0"
+                            @click="levelBarPage -= 1"
+                        >
+                            ‹
+                        </button>
+                        <span>{{ levelBarPageLabel }}</span>
+                        <button
+                            :title="t('Next page')"
+                            @click="levelBarPage += 1"
+                        >
+                            ›
+                        </button>
+                    </div>
+                </div>
+                <template v-if="!settings.collapsedCards.value.includes('levelBars')">
+                    <div class="level-bar-rows">
+                        <div
+                            v-for="(row, i) in visibleLevelBars"
+                            :key="i"
+                            class="level-bar-row"
+                            :style="{ '--level-bar-fill': row.percent * 100 + '%', '--level-bar-hue': 200 + (levelBarPage * LEVEL_BAR_PAGE + i) * 7 }"
+                        >
+                            <div class="level-bar-fill" />
+                            <span class="level-bar-term" v-html="row.html" />
+                            <span class="level-bar-meta">
+                                {{ (row.percent * 100).toFixed(2) }}% · {{ row.left }}
+                            </span>
+                        </div>
+                    </div>
+                </template>
             </div>
 
         </section>
@@ -1273,7 +1474,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                             type="text"
                             spellcheck="false"
                             autocomplete="off"
-                            placeholder="YYYY-MM-DD"
+                            placeholder="YYYY-MM-DD HH:MM"
                             :value="browseText"
                             @input="onBrowseInput"
                         />
@@ -1321,6 +1522,10 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
         </section>
 
         <section class="stats">
+            <div v-if="isDev" class="stat">
+                <div class="label">{{ t('Value') }}</div>
+                <div class="value">{{ step.value.toFixed(6) }}</div>
+            </div>
             <div class="stat">
                 <div class="label">{{ t('Running at') }}</div>
                 <div class="value">{{ clock.tps.value.toFixed(1) }} tps</div>
