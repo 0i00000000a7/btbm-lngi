@@ -1,0 +1,6 @@
+# rustup reads this file, so the wasm target is installed on demand: a fresh
+# clone needs no `rustup target add`. The channel is not pinned to a version —
+# stable is enough, and pinning one only makes the build harder to set up.
+[toolchain]
+channel = "stable"
+targets = ["wasm32-unknown-unknown"]

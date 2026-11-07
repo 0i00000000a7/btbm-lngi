@@ -25,11 +25,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
+      # `rust-toolchain.toml` asks rustup for the wasm32 target, so the toolchain
+      # step only has to pick the channel.
       - name: Install the Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          # The wasm-pack build below targets wasm32.
-          targets: wasm32-unknown-unknown
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2

@@ -7,8 +7,8 @@
   "type": "module",
   "packageManager": "pnpm@11.24.0",
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "dev": "node scripts/ensure-wasm.mjs && vite",
+    "build": "node scripts/ensure-wasm.mjs && vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "wasm": "wasm-pack build --target web --out-dir src/wasm --out-name btbm_core"
   },

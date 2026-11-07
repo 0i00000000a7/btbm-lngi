@@ -62,13 +62,25 @@ A test keeps the committed table in sync with the source list.
 
 ## Development
 
-Requirements: Rust with the `wasm32-unknown-unknown` target, `wasm-pack`, and
-pnpm.
+Two toolchains: Rust for the core, Node for the frontend. `rust-toolchain.toml`
+declares the channel and the `wasm32-unknown-unknown` target, so rustup
+provisions both on first use — no `rustup target add` step.
+
+What has to be installed by hand:
+
+- **rustup** (a distro `rust` package is not enough: it has no toolchain
+  switching and no wasm target). Arch, for instance, packages it as `rustup`
+  and the two conflict.
+- **wasm-pack** — `cargo install wasm-pack` builds it from source, which works
+  even where the distro does not package it.
+- **pnpm** — `corepack enable` picks up the version in `package.json`.
+
+Then:
 
 ```sh
 pnpm install
-pnpm wasm     # build the Rust core into src/wasm
-pnpm dev      # dev server
+pnpm dev      # dev server; builds the wasm core first if it is missing or stale
+pnpm wasm     # rebuild the Rust core by hand
 pnpm build    # type-check + production build
 pnpm preview  # serve the build
 ```

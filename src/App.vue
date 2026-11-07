@@ -5,6 +5,7 @@ import {
     DISPLAY_MODES,
     START_MS,
     bocfLatex,
+    lngiLevels,
     lngiStep,
     milestoneRows,
     dbms,
@@ -174,14 +175,23 @@ const main = computed(() => ({
  * first. The top row counts toward the next family term, the bottom one is the
  * same progress the main bar shows.
  *
- * They refresh on a short timer rather than every frame. The labels only
- * change when the walk crosses a level boundary, while the widths move
- * continuously; a stack of ~30 rows at 60 fps is a lot of DOM for a secondary
- * readout, and 20 fps is indistinguishable here.
+ * They are redrawn on a short timer rather than every frame. The labels only
+ * change when the walk crosses a level boundary, while the widths move by a
+ * fraction of a percent per frame, and building the stack means walking the
+ * whole descent in the core — too much to pay for on every frame.
  */
 interface LevelBar {
+    /**
+     * The level's own term. Rows are keyed by it so a completed level is
+     * replaced instead of reused: with an index key the new level inherits the
+     * finished row's width and the CSS transition animates the fill backwards,
+     * which at speed is the only thing you ever see.
+     */
+    key: string;
     html: string;
     percent: number;
+    /** Elapsed milliseconds at which the level completes. */
+    atMs: number;
     left: string;
 }
 
@@ -207,10 +217,17 @@ const levelBarPageLabel = computed(() =>
         ? `${levelBarPage.value + 1}/${levelBarPages.value}`
         : `${levelBarPage.value + 1}`,
 );
-/** Labels repeat heavily as the walk moves inside one level, so memoize them. */
+/**
+ * Labels repeat heavily as the walk moves inside one level, so memoize them.
+ */
 const levelBarHtml = new Map<string, string>();
+/**
+ * Redraw cadence of the stack, in ms. Building the levels walks the whole
+ * descent in the core, so it is not something to do on every frame; at 20 Hz
+ * the widths still move by a fraction of a percent per update.
+ */
+const LEVEL_BAR_INTERVAL = 50;
 let levelBarStamp = 0;
-let levelBarKey = '';
 
 function levelBarLabel(plain: string): string {
     const hit = levelBarHtml.get(plain);
@@ -234,16 +251,16 @@ function formatSpan(ms: number): string {
 
 watch(
     step,
-    (s) => {
-        const key = s.levels.map((l) => l.ordinal).join('|');
+    () => {
         const now = Date.now();
-        if (key === levelBarKey && now - levelBarStamp < 50) return;
+        if (now - levelBarStamp < LEVEL_BAR_INTERVAL) return;
         levelBarStamp = now;
-        levelBarKey = key;
         const elapsed = clock.elapsedMs.value;
-        levelBars.value = s.levels.map((l) => ({
+        levelBars.value = lngiLevels(elapsed).map((l) => ({
+            key: l.ordinal,
             html: levelBarLabel(l.ordinal),
             percent: l.percent,
+            atMs: l.atMs,
             left: formatSpan(l.atMs - elapsed),
         }));
     },
@@ -441,36 +458,107 @@ function onJumpCommit() {
     clock.setRewind(now - clamped);
 }
 /**
- * The speed slider is signed and multiplicative: position `v` is
- * `sign(v) * (10^|v| - 1)`, so 0 sits exactly at the centre (time frozen),
- * negative runs the clock backwards, and the useful range stays reachable
- * without a hair-trigger near zero.
+ * The speed slider is signed and logarithmic throughout. A single log scale
+ * squeezes `0×…2×` into a couple of pixels of a phone-width track, which makes
+ * slow speeds — and slowing down from a fast one — almost impossible to land
+ * on, so the track is split into four: a hair of linear core so `0×` stays
+ * reachable, then three logarithmic runs. `0.01×…2×` gets the widest, since
+ * that is the range slow motion and gentle rewind live in.
  */
-const speedExp = computed(() => {
-    const s = clock.timeSpeed.value;
-    return Math.sign(s) * Math.log10(Math.abs(s) + 1);
-});
+const SPEED_MAX = 1e8;
+/** Slider units per segment, and the speed at the end of each. */
+const SPEED_CORE = 0.3;
+const SPEED_CORE_MAX = 0.01;
+const SPEED_BAND = 3;
+const SPEED_BAND_MAX = 2;
+const SPEED_MID = 5;
+const SPEED_MID_MAX = 100;
+const SPEED_RANGE = 8;
 
-function setSpeedExp(event: Event) {
-    const v = Number((event.target as HTMLInputElement).value);
-    const next = Math.sign(v) * (10 ** Math.abs(v) - 1);
-    // Outside dev a forward speed may only close a rewind, never pass live.
-    if (!isDev && !rewinding.value && next > 1) return;
-    clock.timeSpeed.value = next;
+/** Position of `a` (a magnitude) inside `[from, to]`, log-spaced. */
+function logPos(a: number, from: number, to: number, v0: number, v1: number): number {
+    return v0 + ((v1 - v0) * Math.log10(a / from)) / Math.log10(to / from);
 }
 
-const speedText = computed(() => {
-    const s = clock.timeSpeed.value;
-    if (Math.abs(s) < 1e-9) return '0×';
+/** The inverse of [`logPos`]. */
+function logSpeed(v: number, from: number, to: number, v0: number, v1: number): number {
+    return from * (to / from) ** ((v - v0) / (v1 - v0));
+}
+
+function speedToExp(s: number): number {
+    const a = Math.abs(s);
+    if (a === 0) return 0;
+    let pos: number;
+    if (a <= SPEED_CORE_MAX) {
+        pos = (a / SPEED_CORE_MAX) * SPEED_CORE;
+    } else if (a <= SPEED_BAND_MAX) {
+        pos = logPos(a, SPEED_CORE_MAX, SPEED_BAND_MAX, SPEED_CORE, SPEED_BAND);
+    } else if (a <= SPEED_MID_MAX) {
+        pos = logPos(a, SPEED_BAND_MAX, SPEED_MID_MAX, SPEED_BAND, SPEED_MID);
+    } else {
+        pos = logPos(a, SPEED_MID_MAX, SPEED_MAX, SPEED_MID, SPEED_RANGE);
+    }
+    return Math.sign(s) * pos;
+}
+
+function expToSpeed(v: number): number {
+    const a = Math.abs(v);
+    let mag: number;
+    if (a <= SPEED_CORE) {
+        mag = (a / SPEED_CORE) * SPEED_CORE_MAX;
+    } else if (a <= SPEED_BAND) {
+        mag = logSpeed(a, SPEED_CORE_MAX, SPEED_BAND_MAX, SPEED_CORE, SPEED_BAND);
+    } else if (a <= SPEED_MID) {
+        mag = logSpeed(a, SPEED_BAND_MAX, SPEED_MID_MAX, SPEED_BAND, SPEED_MID);
+    } else {
+        mag = logSpeed(a, SPEED_MID_MAX, SPEED_MAX, SPEED_MID, SPEED_RANGE);
+    }
+    return Math.sign(v) * mag;
+}
+
+/** Set the speed, capped to the range; outside dev a forward speed may only
+ *  close a rewind, never pass live. */
+function applySpeed(next: number) {
+    if (!Number.isFinite(next)) return;
+    const capped = Math.sign(next) * Math.min(SPEED_MAX, Math.abs(next));
+    if (!isDev && !rewinding.value && capped > 1) return;
+    clock.timeSpeed.value = capped;
+}
+
+const speedExp = computed(() => speedToExp(clock.timeSpeed.value));
+
+function setSpeedExp(event: Event) {
+    applySpeed(expToSpeed(Number((event.target as HTMLInputElement).value)));
+}
+
+/** The bare number in the speed box — no `×`, so it can be typed back in. */
+function speedNumber(s: number): string {
+    if (Math.abs(s) < 1e-9) return '0';
     const a = Math.abs(s);
     const n =
-        a < 10
-            ? a.toFixed(1)
-            : a < 1e6
-              ? Math.round(a).toLocaleString('en-US')
-              : a.toExponential(1).replace('e+', 'e');
-    return `${s < 0 ? '−' : ''}${n}×`;
-});
+        a < 1e6 ? String(Number(a.toPrecision(6))) : a.toExponential(1).replace('e+', 'e');
+    return `${s < 0 ? '-' : ''}${n}`;
+}
+
+const speedField = ref(speedNumber(clock.timeSpeed.value));
+/** While the box has focus its text belongs to the reader, not the clock. */
+const speedFieldActive = ref(false);
+
+watch(
+    () => clock.timeSpeed.value,
+    (s) => {
+        if (!speedFieldActive.value) speedField.value = speedNumber(s);
+    },
+    { immediate: true },
+);
+
+function commitSpeed() {
+    // A pasted or IME-typed minus may be the typographic one.
+    const raw = speedField.value.trim().replace('−', '-');
+    const n = Number(raw);
+    if (raw !== '' && Number.isFinite(n)) applySpeed(n);
+    speedField.value = speedNumber(clock.timeSpeed.value);
+}
 
 /**
  * Outside dev, acceleration is only a way to catch up: the moment the view
@@ -597,9 +685,10 @@ const shownDesc = computed(() => {
     return settings.lang.value === 'zh' ? (DESC_ZH[m.ordinal] ?? m.desc) : m.desc;
 });
 
-/** A signed distance in the chosen language: `3 years away` / `还有 3 年`. */
+/** A signed distance in the chosen language: `3 years away` / `3 years ago`. */
 function away(deltaMs: number): string {
-    const d = formatDuration(deltaMs, settings.lang.value);
+    const d = formatDuration(Math.abs(deltaMs), settings.lang.value);
+    if (deltaMs < 0) return `${d} ${t('ago')}`;
     return settings.lang.value === 'zh' ? `还有 ${d}` : `${d} away`;
 }
 
@@ -615,18 +704,25 @@ const awayText = computed(() => {
  * landmark, which sits further out.
  */
 const nextOrdinalAt = computed(() => {
-    const levels = step.value.levels;
-    return levels.length ? levels[levels.length - 1].atMs : null;
+    const stack = levelBars.value;
+    return stack.length ? stack[stack.length - 1].atMs : null;
 });
 
-/** A short signed distance: `3.2s away` / `还有 3.2秒`. */
+/**
+ * A short distance to a moment ahead: `3.2s away`.
+ *
+ * Never past tense. The level stack is sampled at 20 Hz, and the innermost
+ * level of a deep descent ends in well under that, so by the time its end is
+ * read it is already behind the clock. That means "now", not "ago".
+ */
 function awayShort(deltaMs: number): string {
+    const ahead = Math.max(0, deltaMs);
     // The last levels of the descent end in a fraction of a millisecond; a
     // rounded `0.00s` would read as "already there", so keep the exponent.
     const text =
-        deltaMs > 0 && deltaMs < 10
-            ? `${(deltaMs / 1000).toExponential(1)}${settings.lang.value === 'zh' ? '秒' : 's'}`
-            : formatDurationShort(deltaMs, settings.lang.value);
+        ahead > 0 && ahead < 10
+            ? `${(ahead / 1000).toExponential(1)}${settings.lang.value === 'zh' ? '秒' : 's'}`
+            : formatDurationShort(ahead, settings.lang.value);
     return settings.lang.value === 'zh' ? `还有 ${text}` : `${text} away`;
 }
 
@@ -1174,7 +1270,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                     <div class="level-bar-rows">
                         <div
                             v-for="(row, i) in visibleLevelBars"
-                            :key="i"
+                            :key="row.key"
                             class="level-bar-row"
                             :style="{ '--level-bar-fill': row.percent * 100 + '%', '--level-bar-hue': 200 + (levelBarPage * LEVEL_BAR_PAGE + i) * 7 }"
                         >
@@ -1261,13 +1357,23 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                 <span>{{ t('speed') }}</span>
                 <input
                     type="range"
-                    min="-8"
-                    max="8"
+                    :min="-SPEED_RANGE"
+                    :max="SPEED_RANGE"
                     step="0.05"
                     :value="speedExp"
                     @input="setSpeedExp"
                 />
-                <span class="speed-value">{{ speedText }}</span>
+                <input
+                    v-model="speedField"
+                    class="speed-input"
+                    type="number"
+                    step="any"
+                    inputmode="decimal"
+                    :title="t('Type a speed, e.g. 2.5 or -3')"
+                    @focus="speedFieldActive = true"
+                    @blur="speedFieldActive = false; commitSpeed()"
+                    @keydown.enter="($event.target as HTMLInputElement).blur()"
+                />
             </div>
 
             <div v-if="isDev" class="rewind-dev">
