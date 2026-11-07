@@ -98,7 +98,7 @@ export function useClock() {
      * view in the future, which the live clock has not reached yet.
      */
     function setRewind(ms: number) {
-        const back = Math.min(Math.max(ms, 0), maxRewindMs.value);
+        const back = Math.min(ms, maxRewindMs.value);
         timeOffsetMs.value = -back - driftMs.value;
     }
 
