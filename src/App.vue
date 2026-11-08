@@ -4,6 +4,7 @@ import katex from 'katex';
 import {
     DISPLAY_MODES,
     START_MS,
+    bocfBounds,
     bocfLatex,
     lngiLevels,
     lngiStep,
@@ -64,7 +65,9 @@ const maxColumns = computed(() => Math.max(0, Math.floor(settings.maxColumns.val
  * BTBMS term into a weaker system, so each has a ceiling: Veblen stops at the
  * Bachmann–Howard ordinal, BOCF at the collapse limit. The fallback chain runs
  * BTBMS → BOCF → Veblen, so a term past a notation's reach is shown in the next
- * one down, and past BOCF's reach it is shown as ordinary BTBMS.
+ * one down, and past BOCF's reach it is shown as ordinary BTBMS — unless it
+ * sits between two pinned points, in which case it is printed between the two
+ * BOCF terms that bound it, with `X` standing in for the ordinal.
  *
  * KaTeX is expensive, so it is used *only* for the converted term: those are
  * short (a hundred characters at most, capped in the core) and exist only at
@@ -84,10 +87,45 @@ function renderConverted(plain: string, mode: DisplayMode, cols: number): string
         mode === 'veblen' ? (veblenLatex(plain) ?? bocfLatex(plain)) : bocfLatex(plain);
     const html =
         latex === null
-            ? renderOrdinal(plain, 'index', false, cols)
+            ? renderPinned(plain, cols)
             : katex.renderToString(latex, { output: 'html', throwOnError: false, strict: false });
     mathMemo.set(mode, { plain, html });
     return html;
+}
+
+/**
+ * KaTeX output for the hand-written bounds, keyed by the LaTeX itself.
+ *
+ * Unlike a converted term, a bound is one of a handful of constant strings, so
+ * this cache stays small; without it every frame past the converter's reach
+ * would typeset the same two symbols again.
+ */
+const boundHtml = new Map<string, string>();
+
+function katexBound(latex: string): string {
+    let html = boundHtml.get(latex);
+    if (html === undefined) {
+        html = katex.renderToString(latex, {
+            output: 'html',
+            throwOnError: false,
+            strict: false,
+        });
+        boundHtml.set(latex, html);
+    }
+    return html;
+}
+
+/**
+ * Past the converter's reach a few ordinals are pinned by hand. One that falls
+ * between two of them is shown as `lower < X < upper`: the exact term is
+ * unknown, but its position is not. The matrix itself would be far wider than
+ * the two bounds around it, so `X` stands in for it — boxed, which is the usual
+ * mark for a value that is known only to be in this range.
+ */
+function renderPinned(plain: string, cols: number): string {
+    const bounds = bocfBounds(plain);
+    if (!bounds) return renderOrdinal(plain, 'index', false, cols);
+    return `<span class="pinned-reading">${katexBound(`{${bounds[0]}} < \\boxed{X} < {${bounds[1]}}`)}</span>`;
 }
 
 /**
@@ -554,10 +592,23 @@ watch(
 
 function commitSpeed() {
     // A pasted or IME-typed minus may be the typographic one.
-    const raw = speedField.value.trim().replace('−', '-');
+    const raw = String(speedField.value).trim().replace('−', '-');
     const n = Number(raw);
     if (raw !== '' && Number.isFinite(n)) applySpeed(n);
     speedField.value = speedNumber(clock.timeSpeed.value);
+}
+
+function editSpeed(event: Event) {
+    speedField.value = (event.target as HTMLInputElement).value;
+}
+
+function beginSpeedEdit() {
+    speedFieldActive.value = true;
+}
+
+function endSpeedEdit() {
+    speedFieldActive.value = false;
+    commitSpeed();
 }
 
 /**
@@ -717,12 +768,10 @@ const nextOrdinalAt = computed(() => {
  */
 function awayShort(deltaMs: number): string {
     const ahead = Math.max(0, deltaMs);
-    // The last levels of the descent end in a fraction of a millisecond; a
-    // rounded `0.00s` would read as "already there", so keep the exponent.
-    const text =
-        ahead > 0 && ahead < 10
-            ? `${(ahead / 1000).toExponential(1)}${settings.lang.value === 'zh' ? '秒' : 's'}`
-            : formatDurationShort(ahead, settings.lang.value);
+    // The last levels of the descent end in a fraction of a millisecond;
+    // `formatDurationShort` keeps the exponent there instead of rounding to
+    // `0.00s`, which would read as "already there".
+    const text = formatDurationShort(ahead, settings.lang.value);
     return settings.lang.value === 'zh' ? `还有 ${text}` : `${text} away`;
 }
 
@@ -816,9 +865,17 @@ function goLive() {
 }
 
 /**
- * Landing this long before a landmark means its arrival can be watched.
+ * Landing this long before a landmark means its arrival can be watched — ten
+ * seconds of *real* time, so the lead is scaled by the current speed. At 1×
+ * that is the same ten virtual seconds; at 0.001× it is ten milliseconds,
+ * which is the point: otherwise the arrival you came to watch is hours away.
  */
 const JUMP_LEAD_MS = 10_000;
+
+/** The lead in the walk's own time; frozen time falls back to 1×. */
+function jumpLeadMs(): number {
+    return JUMP_LEAD_MS * (Math.abs(clock.timeSpeed.value) || 1);
+}
 
 /** The live position, in ms since the start. */
 const liveMs = computed(() => clock.liveMs.value);
@@ -830,12 +887,12 @@ const liveMs = computed(() => clock.liveMs.value);
  * developer build may land anywhere.
  */
 function canJump(atMs: number): boolean {
-    return Number.isFinite(atMs) && (isDev || atMs - JUMP_LEAD_MS < liveMs.value);
+    return Number.isFinite(atMs) && (isDev || atMs - jumpLeadMs() < liveMs.value);
 }
 
 function jumpTo(atMs: number) {
     if (!canJump(atMs)) return;
-    const target = atMs - JUMP_LEAD_MS;
+    const target = atMs - jumpLeadMs();
     if (isDev) {
         clock.seek(target);
     } else {
@@ -1364,14 +1421,16 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                     @input="setSpeedExp"
                 />
                 <input
-                    v-model="speedField"
+                    :value="speedField"
                     class="speed-input"
-                    type="number"
-                    step="any"
+                    type="text"
                     inputmode="decimal"
+                    autocomplete="off"
+                    spellcheck="false"
                     :title="t('Type a speed, e.g. 2.5 or -3')"
-                    @focus="speedFieldActive = true"
-                    @blur="speedFieldActive = false; commitSpeed()"
+                    @input="editSpeed"
+                    @focus="beginSpeedEdit"
+                    @blur="endSpeedEdit"
                     @keydown.enter="($event.target as HTMLInputElement).blur()"
                 />
             </div>
@@ -1431,7 +1490,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
             </div>
             <div v-if="focused !== null && canJump(shown.atMs)" class="milestone-actions">
                 <button class="ghost" @click="jumpTo(shown.atMs)">
-                    {{ t('↩ jump to 10 seconds before this landmark') }}
+                    {{ t('↩ jump to 10 real seconds before this landmark') }}
                 </button>
             </div>
             <p v-if="shownDesc" class="milestone-desc" v-html="shownDesc" />
@@ -1567,7 +1626,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                                 class="ghost"
                                 @click="jumpTo(search.atMs)"
                             >
-                                {{ t('↩ jump to 10 seconds before this landmark') }}
+                                {{ t('↩ jump to 10 real seconds before this landmark') }}
                             </button>
                         </template>
                     </div>

@@ -45,7 +45,7 @@ const ZH: Record<string, string> = {
     // milestones
     Milestones: '里程碑',
     'Back to where the walk is': '回到行进位置',
-    '↩ jump to 10 seconds before this landmark': '↩ 跳到该里程碑前 10 秒',
+    '↩ jump to 10 real seconds before this landmark': '↩ 跳到该里程碑前 10 个现实秒',
     'Every landmark reached. The sequence keeps going.': '所有里程碑均已到达。序列仍在继续。',
     'unreachable — the walk never gets there': '不可达——行进永远不会到达',
     'of this stretch': '这一段',

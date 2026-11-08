@@ -166,13 +166,32 @@ pub fn parse(input: &str, mode: &str, latex: bool, max_cols: u32) -> Result<Stri
 }
 
 /// The ordinal as Buchholz OCF form, as LaTeX; `None` when it is past what the
-/// notation reaches (or too wide to be worth converting), in which case the
-/// caller shows the ordinary BTBMS form instead.
+/// notation reaches (or too wide to be worth converting) and no hand-written
+/// reading covers it, in which case the caller shows the ordinary BTBMS form.
 #[wasm_bindgen]
 pub fn bocf_latex(plain: &str) -> Option<String> {
     let n = Btbm::new();
     let e = n.from_display(plain).ok()?;
     bocf::bocf_latex(&n, &e)
+}
+
+/// The hand-written BOCF bounds around an ordinal the converter declines but
+/// which sits between two pinned points, as `[lower, upper]` LaTeX; `null`
+/// otherwise.
+///
+/// The caller prints `lower < term < upper`, with the term in BTBMS: past the
+/// converter's reach the exact value is unknown, but its position is not.
+#[wasm_bindgen]
+pub fn bocf_bounds(plain: &str) -> Result<JsValue, JsValue> {
+    let n = Btbm::new();
+    let Ok(e) = n.from_display(plain) else {
+        return Ok(JsValue::NULL);
+    };
+    match bocf::bocf_bounds(&n, &e) {
+        Some((lower, upper)) => serde_wasm_bindgen::to_value(&[lower, upper])
+            .map_err(|e| JsValue::from_str(&e.to_string())),
+        None => Ok(JsValue::NULL),
+    }
 }
 
 /// The ordinal as an extended Veblen expression, as LaTeX.
