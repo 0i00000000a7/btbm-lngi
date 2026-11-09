@@ -5,6 +5,7 @@
  * hand-written here instead of importing the generated types.
  */
 import init, {
+    bocf_bounds,
     bocf_latex,
     families,
     fs_term,
@@ -64,8 +65,9 @@ export const DISPLAY_MODES: { id: DisplayMode; label: string; labelZh?: string }
     { id: 'layer', label: 'BTBMS (Layer)', labelZh: '标记层级 BTBMS' },
     { id: 'index', label: 'BTBMS (Index)', labelZh: '标记父项 BTBMS' },
     { id: 'annotated', label: 'BTBMS (Annotated)', labelZh: '显示列标 BTBMS' },
-    // BOCF keeps going past EBO as an idea, but this conversion stops there.
-    { id: 'bocf', label: 'BOCF (before EBO)', labelZh: 'BOCF（EBO 之前）' },
+    // The conversion stops at EBO; a few stretches above it are pinned by hand
+    // in the core, so the label does not claim a hard ceiling.
+    { id: 'bocf', label: 'BOCF', labelZh: 'BOCF' },
     { id: 'veblen', label: 'Veblen' },
     { id: 'zeroy', label: '0-Y' },
     // DBMS and 1-Y/ω-Y stop at SHO. The notations themselves carry on past it,
@@ -205,10 +207,23 @@ export function lngiLevels(elapsedMs: number): LevelBar[] {
  * The ordinal in Buchholz OCF form, as LaTeX.
  *
  * `null` means the ordinal is past what the notation reaches (or too wide to be
- * worth converting); the caller must show the ordinary BTBMS form instead.
+ * worth converting) and no hand-written reading covers it; the caller then
+ * shows the pinned bounds around it or the ordinary BTBMS form.
  */
 export function bocfLatex(plain: string): string | null {
     return bocf_latex(plain) ?? null;
+}
+
+/**
+ * The hand-written BOCF bounds around an ordinal the converter declines, as
+ * `[lower, upper]` LaTeX; `null` when it does not sit between two pinned
+ * points.
+ *
+ * Past the converter's reach the exact term is unknown, but its position is
+ * not: the caller prints `lower < X < upper`.
+ */
+export function bocfBounds(plain: string): [string, string] | null {
+    return (bocf_bounds(plain) as [string, string] | null) ?? null;
 }
 
 /**

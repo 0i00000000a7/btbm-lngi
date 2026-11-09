@@ -19,6 +19,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use super::bocf_table as table;
 use super::notation::Btbm;
 use super::types::{Column, Expr};
 
@@ -783,9 +784,17 @@ fn convert(n: &Btbm, expr: &Expr, d: Dialect) -> Option<String> {
     })
 }
 
-/// The ordinal as BOCF, in LaTeX; `None` when it is past what the OCF reaches.
+/// The ordinal as BOCF, in LaTeX; `None` when it is past what the OCF reaches
+/// and no hand-written reading covers it.
 pub fn bocf_latex(n: &Btbm, expr: &Expr) -> Option<String> {
-    convert(n, expr, Dialect::Latex)
+    convert(n, expr, Dialect::Latex).or_else(|| table::latex(n, expr).map(str::to_string))
+}
+
+/// The LaTeX bounds around an ordinal the converter declines, taken from the
+/// two hand-written points it sits between; the caller prints
+/// `lower < X < upper`.
+pub fn bocf_bounds(n: &Btbm, expr: &Expr) -> Option<(&'static str, &'static str)> {
+    table::bounds(n, expr)
 }
 
 // ---------------------------------------------------------------------------
@@ -1409,21 +1418,47 @@ mod tests {
         }
     }
 
-    /// Past the OCF's reach the caller must fall back, never guess.
+    /// Past the OCF's reach the caller must fall back, never guess. The
+    /// hand-written points are the only ordinals named up there, and
+    /// `hardcoded_readings_past_the_limit` covers those.
     #[test]
     fn falls_back_past_the_limit() {
         let n = Btbm::new();
-        for src in [
-            "(0,0,0)(1,1,1)(2,1,1)(3,1,0)(2,0,0)",
-            "(0,0,0)(1,1,1)(2,1,1)(3,1,0)(2,1,0)",
-            "(0)(1^(2))",
-            "(0)(1)(1^(2))",
-        ] {
+        for src in ["(0)(1^(2))", "(0)(1)(1^(2))"] {
             assert!(
                 bocf_latex(&n, &term(&n, src)).is_none(),
                 "{src} should be out of range"
             );
         }
+    }
+
+    /// The hand-written points: EBO is ψ(I), SIO is ψ(I_ω), and an ordinal
+    /// between two points is bracketed by them.
+    #[test]
+    fn hardcoded_readings_past_the_limit() {
+        let n = Btbm::new();
+        let ebo = "(0)(1,1,1)(2,1,1)(3,1)(2)";
+        let sio = "(0)(1,1,1)(2,1,1)(3,1,1)";
+
+        assert_eq!(
+            bocf_latex(&n, &term(&n, ebo)).as_deref(),
+            Some("\\psi_{}(I)")
+        );
+        assert_eq!(bocf_bounds(&n, &term(&n, ebo)), None);
+
+        assert_eq!(
+            bocf_latex(&n, &term(&n, sio)).as_deref(),
+            Some("\\psi_{}(I_\\omega)")
+        );
+        assert_eq!(bocf_bounds(&n, &term(&n, sio)), None);
+
+        // EBO's successor falls between it and the first point above it.
+        let successor = "(0)(1,1,1)(2,1,1)(3,1)(2)(0)";
+        assert_eq!(bocf_latex(&n, &term(&n, successor)), None);
+        assert_eq!(
+            bocf_bounds(&n, &term(&n, successor)).map(|b| b.0),
+            Some("\\psi_{}(I)")
+        );
     }
 
     /// Width cap: a wider matrix is cut to a prefix and marked, not refused.

@@ -167,8 +167,22 @@ export function formatMoment(ms: number, lang: Lang = 'en'): string {
     });
 }
 
-/** Format milliseconds as `1 year 2 days 3 hours ...` (Chinese has no plurals). */export function formatDuration(ms: number, lang: Lang = 'en'): string {
+/**
+ * Below this a countdown's seconds are written in scientific notation.
+ *
+ * Two decimals of a second round anything under ten milliseconds to `0.00`,
+ * which reads as "already there" rather than "nearly there"; `3.21e-3 seconds`
+ * keeps the remaining distance visible.
+ */
+const SMALL_MS = 10;
+
+/** Format milliseconds as `1 year 2 days 3 hours ...` (Chinese has no plurals). */
+export function formatDuration(ms: number, lang: Lang = 'en'): string {
     if (ms <= 0) return translate(lang, '0 seconds');
+    if (ms < SMALL_MS) {
+        const s = (ms / 1000).toExponential(2);
+        return lang === 'zh' ? `${s} 秒` : `${s} seconds`;
+    }
     let s = ms / 1000;
     const years = Math.floor(s / (86400 * 365));
     s %= 86400 * 365;
@@ -208,7 +222,10 @@ export function formatDurationShort(ms: number, lang: Lang = 'en'): string {
     // A level can end inside the same second the walk is in, so the sub-second
     // range keeps a reading instead of going blank. Up to ten seconds the
     // tenths matter — that is the scale a level bar actually moves at.
-    if (ms < 10) return lang === 'zh' ? '0.00秒' : '0.00s';
+    if (ms < SMALL_MS) {
+        const s = (ms / 1000).toExponential(2);
+        return lang === 'zh' ? `${s}秒` : `${s}s`;
+    }
     if (ms < 1000) {
         const hundredths = (Math.floor(ms / 10) / 100).toFixed(2);
         return lang === 'zh' ? `${hundredths}秒` : `${hundredths}s`;

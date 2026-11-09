@@ -15,6 +15,7 @@
 //! ```
 
 mod bocf;
+mod bocf_table;
 mod compare;
 mod convert;
 mod display;

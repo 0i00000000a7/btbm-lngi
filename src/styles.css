@@ -169,6 +169,13 @@ body {
     color: var(--muted);
 }
 
+/* A pinned reading — `ψ(I) < X < ψ(I_ω)` — names the ordinal only up to a
+   range, so its placeholder is boxed in dashes rather than a solid frame. */
+.pinned-reading .fbox {
+    border-style: dashed;
+    opacity: 0.85;
+}
+
 .hero-ordinal sup {
     font-size: 0.62em;
     vertical-align: super;
