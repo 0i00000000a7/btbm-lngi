@@ -181,13 +181,17 @@ pub fn bocf_latex(plain: &str) -> Option<String> {
 ///
 /// The caller prints `lower < term < upper`, with the term in BTBMS: past the
 /// converter's reach the exact value is unknown, but its position is not.
+///
+/// `value` is the curve value the ordinal was produced from. The table is
+/// indexed by it, so the lookup is a binary search over numbers; `plain` is
+/// only needed to tell a pinned point from the interval above it.
 #[wasm_bindgen]
-pub fn bocf_bounds(plain: &str) -> Result<JsValue, JsValue> {
+pub fn bocf_bounds(value: f64, plain: &str) -> Result<JsValue, JsValue> {
     let n = Btbm::new();
     let Ok(e) = n.from_display(plain) else {
         return Ok(JsValue::NULL);
     };
-    match bocf::bocf_bounds(&n, &e) {
+    match bocf::bocf_bounds(value, &n, &e) {
         Some((lower, upper)) => serde_wasm_bindgen::to_value(&[lower, upper])
             .map_err(|e| JsValue::from_str(&e.to_string())),
         None => Ok(JsValue::NULL),

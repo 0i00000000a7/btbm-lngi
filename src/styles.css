@@ -152,6 +152,12 @@ body {
     color: var(--muted);
 }
 
+.hero-label-end {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .hero-ordinal {
     margin: 14px 0 4px;
     font-size: clamp(1.4rem, 3.2vw, 2.1rem);
@@ -366,6 +372,7 @@ a.ghost {
 }
 
 .milestone-term {
+    display: block;
     font-size: 1.05rem;
     overflow-wrap: anywhere;
 }
@@ -393,6 +400,7 @@ a.ghost {
 }
 
 .milestone-desc {
+    display: block;
     margin: 0;
     font-size: 0.82rem;
     color: var(--fg-soft);
@@ -1218,6 +1226,36 @@ a.ghost {
     line-height: 0;
 }
 
+/* ------------------------------------------------------------- the canvas */
+
+/* The ordinal is painted, not laid out (`core/ordinal-canvas.ts`). The canvas
+   is pinned to the top-left of the scroll box so only the lines on screen are
+   ever drawn; the tail is empty space that gives the box its scroll range.
+   `touch-action` allows panning but not the browser's pinch zoom, which would
+   magnify the bitmap instead of redrawing it — the two-finger gesture is
+   handled by the box itself. */
+.ordinal-box {
+    touch-action: pan-x pan-y;
+}
+
+.ordinal-canvas {
+    position: sticky;
+    top: 0;
+    left: 0;
+    display: block;
+}
+
+/* Markup the painter cannot draw — KaTeX output, the empty-set sign. */
+.ordinal-dom {
+    display: none;
+}
+
+.ordinal-tail {
+    display: block;
+    width: 100%;
+    height: 0;
+}
+
 .panel-body sub {
     font-size: 0.62em;
     vertical-align: sub;
@@ -1232,6 +1270,12 @@ a.ghost {
 .hero-ordinal,
 .panel-body {
     contain: content;
+}
+
+/* A panel scrolled out of view costs nothing to lay out or paint. The height is
+   set inline, so skipping the subtree cannot change the page's size. */
+.panel-body {
+    content-visibility: auto;
 }
 
 /* Drag to resize a panel: pinned to the card's bottom, spanning the full row. */

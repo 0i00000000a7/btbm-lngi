@@ -88,6 +88,9 @@ const ZH: Record<string, string> = {
     Collapse: '折叠',
     'Drag to resize': '拖动调整大小',
     Remove: '移除',
+    Copy: '复制',
+    Copied: '已复制',
+    'Back to the original size': '回到原始大小',
     // settings
     'Font family': '字体',
     'Font size': '字号',

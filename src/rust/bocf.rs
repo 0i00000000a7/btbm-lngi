@@ -790,11 +790,10 @@ pub fn bocf_latex(n: &Btbm, expr: &Expr) -> Option<String> {
     convert(n, expr, Dialect::Latex).or_else(|| table::latex(n, expr).map(str::to_string))
 }
 
-/// The LaTeX bounds around an ordinal the converter declines, taken from the
-/// two hand-written points it sits between; the caller prints
-/// `lower < X < upper`.
-pub fn bocf_bounds(n: &Btbm, expr: &Expr) -> Option<(&'static str, &'static str)> {
-    table::bounds(n, expr)
+/// The LaTeX bounds around the ordinal at `value`, taken from the two
+/// hand-written points it sits between; the caller prints `lower < X < upper`.
+pub fn bocf_bounds(value: f64, n: &Btbm, expr: &Expr) -> Option<(&'static str, &'static str)> {
+    table::bounds(value, n, expr)
 }
 
 // ---------------------------------------------------------------------------
@@ -1436,27 +1435,36 @@ mod tests {
     /// between two points is bracketed by them.
     #[test]
     fn hardcoded_readings_past_the_limit() {
+        use super::super::lngi::Lngi;
+
         let n = Btbm::new();
         let ebo = "(0)(1,1,1)(2,1,1)(3,1)(2)";
         let sio = "(0)(1,1,1)(2,1,1)(3,1,1)";
+        // The table is indexed by the curve value, so each case needs the
+        // value the walk produces the ordinal at.
+        let value_of = |src: &str| {
+            Lngi::new()
+                .reach_value(&term(&n, src))
+                .expect("on the walk")
+        };
 
         assert_eq!(
             bocf_latex(&n, &term(&n, ebo)).as_deref(),
             Some("\\psi_{}(I)")
         );
-        assert_eq!(bocf_bounds(&n, &term(&n, ebo)), None);
+        assert_eq!(bocf_bounds(value_of(ebo), &n, &term(&n, ebo)), None);
 
         assert_eq!(
             bocf_latex(&n, &term(&n, sio)).as_deref(),
             Some("\\psi_{}(I_\\omega)")
         );
-        assert_eq!(bocf_bounds(&n, &term(&n, sio)), None);
+        assert_eq!(bocf_bounds(value_of(sio), &n, &term(&n, sio)), None);
 
         // EBO's successor falls between it and the first point above it.
         let successor = "(0)(1,1,1)(2,1,1)(3,1)(2)(0)";
         assert_eq!(bocf_latex(&n, &term(&n, successor)), None);
         assert_eq!(
-            bocf_bounds(&n, &term(&n, successor)).map(|b| b.0),
+            bocf_bounds(value_of(successor), &n, &term(&n, successor)).map(|b| b.0),
             Some("\\psi_{}(I)")
         );
     }
