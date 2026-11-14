@@ -221,9 +221,13 @@ export function bocfLatex(plain: string): string | null {
  *
  * Past the converter's reach the exact term is unknown, but its position is
  * not: the caller prints `lower < X < upper`.
+ *
+ * `value` is the curve value the ordinal was produced from — the table is
+ * indexed by it, so the lookup is a binary search over numbers rather than a
+ * comparison of thousand-character terms.
  */
-export function bocfBounds(plain: string): [string, string] | null {
-    return (bocf_bounds(plain) as [string, string] | null) ?? null;
+export function bocfBounds(value: number, plain: string): [string, string] | null {
+    return (bocf_bounds(value, plain) as [string, string] | null) ?? null;
 }
 
 /**

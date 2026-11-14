@@ -1,25 +1,20 @@
 <script setup lang="ts" vapor>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import katex from 'katex';
+import { ZERO_TEXT } from './core/render';
+import HtmlBlock from './components/HtmlBlock.vue';
+import OrdinalBox from './components/OrdinalBox.vue';
 import {
     DISPLAY_MODES,
     START_MS,
-    bocfBounds,
-    bocfLatex,
     lngiLevels,
     lngiStep,
     milestoneRows,
-    dbms,
     type MilestoneRow,
-    oneY,
     ordinalAtValue,
     remarkableValue,
     renderOrdinal,
     searchOrdinal,
     timeAtValue,
-    veblenLatex,
-    vulcanizText,
-    zeroY,
     type DisplayMode,
 } from './core/wasm';
 import {
@@ -48,165 +43,44 @@ const step = computed(() => lngiStep(clock.elapsedMs.value));
 const maxColumns = computed(() => Math.max(0, Math.floor(settings.maxColumns.value) || 0));
 
 /**
- * Rendered output, produced on demand.
+ * The typography the ordinal boxes draw with.
  *
- * Only the modes actually on screen are rendered — the hero's mode plus every
- * panel's mode — so an unused structure costs nothing. Computation happened
- * once in `step`; this is purely the rendering step.
- *
- * `renderOrdinal`'s third argument selects LaTeX instead of HTML. It is `false`
- * on purpose: these ordinals are brackets, digits and superscripts, which the
- * HTML form renders fine and about 2.5x faster. (KaTeX is still a dependency —
- * should a future notation actually need real math typesetting, pass `true`
- * here and pipe the result through `katex.renderToString`.)
+ * It is passed down as a string so a painter only re-reads the computed style
+ * when the font actually changes, instead of on every frame.
  */
+const styleKey = computed(() => `${settings.fontFamily.value}|${settings.fontSize.value}`);
+
+/** Progress through the current level, for the bar under the hero. */
+const main = computed(() => ({ percent: step.value.percent }));
+
 /**
- * The converted notations, typeset by KaTeX. Each one is a rewrite of the
- * BTBMS term into a weaker system, so each has a ceiling: Veblen stops at the
- * Bachmann–Howard ordinal, BOCF at the collapse limit. The fallback chain runs
- * BTBMS → BOCF → Veblen, so a term past a notation's reach is shown in the next
- * one down, and past BOCF's reach it is shown as ordinary BTBMS — unless it
- * sits between two pinned points, in which case it is printed between the two
- * BOCF terms that bound it, with `X` standing in for the ordinal.
+ * Copy the ordinal as the core spells it, not as it is drawn.
  *
- * KaTeX is expensive, so it is used *only* for the converted term: those are
- * short (a hundred characters at most, capped in the core) and exist only at
- * the start of the timeline. The fallback never goes through KaTeX — doing that
- * for a long ordinal is what once dropped this app from 40 tps to 14.
- *
- * One slot per mode is enough: the ordinal changes every frame, so a wider
- * cache would never be hit, but two panels may show two different modes.
+ * The drawn form depends on the panel's notation; the plain form is the one
+ * that can be pasted back into the search field or another implementation.
  */
-const mathMemo = new Map<DisplayMode, { plain: string; html: string }>();
+const copiedId = ref<string | null>(null);
+let copyTimer: number | undefined;
 
-function renderConverted(plain: string, mode: DisplayMode, cols: number): string {
-    const hit = mathMemo.get(mode);
-    if (hit && hit.plain === plain) return hit.html;
-
-    const latex =
-        mode === 'veblen' ? (veblenLatex(plain) ?? bocfLatex(plain)) : bocfLatex(plain);
-    const html =
-        latex === null
-            ? renderPinned(plain, cols)
-            : katex.renderToString(latex, { output: 'html', throwOnError: false, strict: false });
-    mathMemo.set(mode, { plain, html });
-    return html;
+async function copyOrdinal(id: string): Promise<void> {
+    const text = step.value.ordinal;
+    try {
+        await navigator.clipboard.writeText(text);
+    } catch {
+        // `clipboard` needs a secure context; the dev server is not always one.
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+    }
+    copiedId.value = id;
+    clearTimeout(copyTimer);
+    copyTimer = window.setTimeout(() => (copiedId.value = null), 1200);
 }
-
-/**
- * KaTeX output for the hand-written bounds, keyed by the LaTeX itself.
- *
- * Unlike a converted term, a bound is one of a handful of constant strings, so
- * this cache stays small; without it every frame past the converter's reach
- * would typeset the same two symbols again.
- */
-const boundHtml = new Map<string, string>();
-
-function katexBound(latex: string): string {
-    let html = boundHtml.get(latex);
-    if (html === undefined) {
-        html = katex.renderToString(latex, {
-            output: 'html',
-            throwOnError: false,
-            strict: false,
-        });
-        boundHtml.set(latex, html);
-    }
-    return html;
-}
-
-/**
- * Past the converter's reach a few ordinals are pinned by hand. One that falls
- * between two of them is shown as `lower < X < upper`: the exact term is
- * unknown, but its position is not. The matrix itself would be far wider than
- * the two bounds around it, so `X` stands in for it — boxed, which is the usual
- * mark for a value that is known only to be in this range.
- */
-function renderPinned(plain: string, cols: number): string {
-    const bounds = bocfBounds(plain);
-    if (!bounds) return renderOrdinal(plain, 'index', false, cols);
-    return `<span class="pinned-reading">${katexBound(`{${bounds[0]}} < \\boxed{X} < {${bounds[1]}}`)}</span>`;
-}
-
-/**
- * Before the start the walk sits on the empty matrix. The OCF forms print the
- * zero; the matrix-shaped notations show the empty-set sign instead, which is
- * what an empty matrix is — and is not a dash, which would read as "unknown".
- */
-const EMPTY_HTML = '<span class="empty-ordinal">∅</span>';
-const ZERO_HTML = katex.renderToString('0', {
-    output: 'html',
-    throwOnError: false,
-    strict: false,
-});
-const ZERO_TEXT = '0';
-
-/**
- * Every mode is a rewrite of the same term, and every rewrite has a ceiling.
- * Past it the BTBMS form is shown instead of a wrong answer.
- */
-function renderMode(mode: DisplayMode, plain: string, cols: number): string {
-    switch (mode) {
-        case 'bocf':
-        case 'veblen':
-            return renderConverted(plain, mode, cols);
-        case 'zeroy':
-            return zeroY(plain) ?? renderOrdinal(plain, 'index', false, cols);
-        case 'dbms':
-            return dbms(plain) ?? renderOrdinal(plain, 'index', false, cols);
-        case 'y1':
-            return oneY(plain) ?? renderOrdinal(plain, 'index', false, cols);
-        case 'vulcaniz':
-            return vulcanizText(plain) ?? renderOrdinal(plain, 'index', false, cols);
-        default:
-            return renderOrdinal(plain, mode, false, cols);
-    }
-}
-
-const htmlByMode = computed<Record<DisplayMode, string>>(() => {
-    if (!started.value) {
-        return {
-            index: EMPTY_HTML,
-            layer: EMPTY_HTML,
-            annotated: EMPTY_HTML,
-            bocf: ZERO_HTML,
-            veblen: ZERO_HTML,
-            zeroy: EMPTY_HTML,
-            dbms: EMPTY_HTML,
-            y1: EMPTY_HTML,
-            vulcaniz: EMPTY_HTML,
-        };
-    }
-
-    const out: Record<DisplayMode, string> = {
-        index: '',
-        layer: '',
-        annotated: '',
-        bocf: '',
-        veblen: '',
-        zeroy: '',
-        dbms: '',
-        y1: '',
-        vulcaniz: '',
-    };
-    const plain = step.value.ordinal;
-    const cols = maxColumns.value;
-
-    const needed = new Set<DisplayMode>([heroMode.value]);
-    for (const panel of settings.panels.value) {
-        if (!panel.collapsed) needed.add(panel.mode);
-    }
-
-    for (const mode of needed) {
-        out[mode] = renderMode(mode, plain, cols);
-    }
-    return out;
-});
-
-const main = computed(() => ({
-    html: htmlByMode.value[heroMode.value],
-    percent: step.value.percent,
-}));
 
 /**
  * Level bars: one row per level the walk is currently nested in, outermost
@@ -1266,12 +1140,32 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
         <section class="hero">
             <div class="hero-label">
                 <span>{{ t('Current ordinal') }}</span>
-                <span>{{ heroModeLabel }}</span>
+                <span class="hero-label-end">
+                    <span>{{ heroModeLabel }}</span>
+                    <button class="ghost" @click="copyOrdinal('hero')">
+                        {{ copiedId === 'hero' ? t('Copied') : t('Copy') }}
+                    </button>
+                    <button
+                        v-if="settings.heroScale.value !== 1"
+                        class="ghost"
+                        :title="t('Back to the original size')"
+                        @click="settings.setHeroScale(1)"
+                    >
+                        1×
+                    </button>
+                </span>
             </div>
-            <div
+            <OrdinalBox
                 class="hero-ordinal"
-                :style="{ height: settings.heroHeight.value + 'px' }"
-                v-html="main.html"
+                :mode="heroMode"
+                :plain="step.ordinal"
+                :value="step.value"
+                :cols="maxColumns"
+                :started="started"
+                :height="settings.heroHeight.value"
+                :scale="settings.heroScale.value"
+                :style-key="styleKey"
+                @scale="settings.setHeroScale"
             />
             <div
                 class="resize-handle"
@@ -1332,7 +1226,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                             :style="{ '--level-bar-fill': row.percent * 100 + '%', '--level-bar-hue': 200 + (levelBarPage * LEVEL_BAR_PAGE + i) * 7 }"
                         >
                             <div class="level-bar-fill" />
-                            <span class="level-bar-term" v-html="row.html" />
+                            <HtmlBlock class="level-bar-term" :html="row.html" />
                             <span class="level-bar-meta">
                                 {{ (row.percent * 100).toFixed(2) }}% · {{ row.left }}
                             </span>
@@ -1471,7 +1365,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
             </div>
             <template v-if="!settings.collapsedCards.value.includes('milestones')">
             <div v-if="shown" class="milestone-next">
-                <div class="milestone-term" v-html="shownTerm" />
+                <HtmlBlock class="milestone-term" :html="shownTerm" />
                 <div class="milestone-side">
                     <span v-if="shown.title" class="milestone-title">{{ shown.title }}</span>
                     <span
@@ -1493,7 +1387,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                     {{ t('↩ jump to 10 real seconds before this landmark') }}
                 </button>
             </div>
-            <p v-if="shownDesc" class="milestone-desc" v-html="shownDesc" />
+            <HtmlBlock v-if="shownDesc" class="milestone-desc" :html="shownDesc" />
             <div class="bar"><div class="fill" :style="{ width: shownProgress * 100 + '%' }" /></div>
             <div class="milestone-foot">
                 <template v-if="focused === null && !nextMilestone">
@@ -1528,7 +1422,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                     :style="{ '--hue': row.hue }"
                 >
                     <span class="mbar-fill" :style="{ width: row.pct * 100 + '%' }" />
-                    <span class="mbar-term" v-html="row.term" />
+                    <HtmlBlock class="mbar-term" :html="row.term" />
                     <span class="mbar-meta">{{ Math.round(row.pct * 100) }}% · {{ row.left }}</span>
                 </div>
             </div>
@@ -1549,7 +1443,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                 >
                     <span class="milestone-index">{{ index + 1 }}</span>
                     <span class="milestone-row-term">
-                        <span v-html="milestoneTerms[index]" />
+                        <HtmlBlock :html="milestoneTerms[index]" />
                         <span v-if="m.title" class="milestone-row-title">{{ m.title }}</span>
                     </span>
                     <span
@@ -1742,13 +1636,31 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                                 </li>
                             </ul>
                         </div>
+                        <button class="ghost" @click="copyOrdinal(panel.id)">
+                            {{ copiedId === panel.id ? t('Copied') : t('Copy') }}
+                        </button>
+                        <button
+                            v-if="panel.scale !== 1"
+                            class="ghost"
+                            :title="t('Back to the original size')"
+                            @click="settings.setPanelScale(panel.id, 1)"
+                        >
+                            1×
+                        </button>
                         <button class="ghost" @click="settings.removePanel(panel.id)">{{ t('Remove') }}</button>
                     </div>
-                    <div
+                    <OrdinalBox
                         v-if="!panel.collapsed"
                         class="panel-body"
-                        :style="{ height: panel.height + 'px' }"
-                        v-html="htmlByMode[panel.mode]"
+                        :mode="panel.mode"
+                        :plain="step.ordinal"
+                        :value="step.value"
+                        :cols="maxColumns"
+                        :started="started"
+                        :height="panel.height"
+                        :scale="panel.scale"
+                        :style-key="styleKey"
+                        @scale="settings.setPanelScale(panel.id, $event)"
                     />
                     <div
                         v-if="!panel.collapsed"

@@ -19,6 +19,8 @@ export interface Panel {
     /** Folded away: the header stays, the body does not render. */
     collapsed: boolean;
     hue: number;
+    /** Magnification of this panel's text; 1 is its laid-out size. */
+    scale: number;
 }
 
 const STORAGE_KEY = 'btbm_lngi_settings_v2';
@@ -40,6 +42,14 @@ interface Persisted {
     heroHeight: number;
     /** Show at most this many columns, then an ellipsis (0 = no limit). */
     maxColumns: number;
+    /** Magnification of the hero's text; 1 shows it at its laid-out size. */
+    heroScale?: number;
+    /**
+     * Magnification that used to be shared by the hero and every panel.
+     *
+     * Only read to migrate: the hero keeps the value, the panels start at 1.
+     */
+    ordinalScale?: number;
     /** Precision levels of the rewind control, largest first. */
     rewindUnits: string[];
     /** Cards the user folded away, by id. */
@@ -91,6 +101,9 @@ function normalizePanel(p: Panel, fallbackMode: DisplayMode): Panel {
         mode: normalizeMode(p.mode, fallbackMode),
         height: p.height ?? DEFAULT_PANEL_HEIGHT,
         collapsed: p.collapsed ?? false,
+        // A panel saved before each box kept its own scale has none; it starts
+        // at the laid-out size rather than inheriting the hero's magnification.
+        scale: clampScale(p.scale ?? 1),
     };
 }
 
@@ -99,6 +112,26 @@ export const DEFAULT_MAX_COLUMNS = 0;
 
 /** Default precision levels for the rewind control. */
 export const DEFAULT_REWIND_UNITS = ['day', 'hour', 'minute'];
+
+/**
+ * Bounds of the ordinal magnification.
+ *
+ * The text is laid out at the box's own width and then magnified, so zooming
+ * costs nothing to draw and only trades how much of the ordinal is on screen
+ * for how large it is. There is no ceiling: the sub- and superscripts are
+ * drawn at a fraction of the body size, so how far in a reader needs to go
+ * depends on how deeply the column nests, and only they can tell where the
+ * text stops being legible.
+ *
+ * The floor is 1: below that the layout would be shrunk into the corner of the
+ * box, which shows less than the laid-out size does, not more.
+ */
+export const MIN_ORDINAL_SCALE = 1;
+
+function clampScale(value: number): number {
+    if (!Number.isFinite(value)) return 1;
+    return Math.max(MIN_ORDINAL_SCALE, value);
+}
 
 /**
  * Settings + ordinal-panel layout (persisted in localStorage).
@@ -115,6 +148,8 @@ export function useSettings() {
         saved?.defaultMode === 'auto' ? 'auto' : normalizeMode(saved?.defaultMode, 'layer'),
     );
     const panelMode = (): DisplayMode => (defaultMode.value === 'auto' ? 'layer' : defaultMode.value);
+    /** What the hero was magnified by before each box kept its own scale. */
+    const legacyScale = clampScale(saved?.ordinalScale ?? 1);
     const panels = ref<Panel[]>(
         saved?.panels?.length
             ? saved.panels.map((p) => normalizePanel(p, panelMode()))
@@ -126,6 +161,7 @@ export function useSettings() {
                       height: DEFAULT_PANEL_HEIGHT,
                       collapsed: false,
                       hue: 210,
+                      scale: 1,
                   },
               ],
     );
@@ -133,6 +169,8 @@ export function useSettings() {
     const heroHeight = ref<number>(saved?.heroHeight ?? DEFAULT_PANEL_HEIGHT);
     /** Cap on rendered columns; every extra column multiplies the DOM cost. */
     const maxColumns = ref<number>(saved?.maxColumns ?? DEFAULT_MAX_COLUMNS);
+    /** Magnification of the hero's text; 1 is its laid-out size. */
+    const heroScale = ref<number>(clampScale(saved?.heroScale ?? legacyScale));
     /** Which granularities the rewind control offers. */
     const rewindUnits = ref<string[]>(saved?.rewindUnits ?? [...DEFAULT_REWIND_UNITS]);
     /** Folded cards, by id. */
@@ -156,6 +194,7 @@ export function useSettings() {
             panels: panels.value,
             heroHeight: heroHeight.value,
             maxColumns: maxColumns.value,
+            heroScale: heroScale.value,
             rewindUnits: rewindUnits.value,
             collapsedCards: collapsedCards.value,
             view: view.value,
@@ -177,6 +216,7 @@ export function useSettings() {
             panels,
             heroHeight,
             maxColumns,
+            heroScale,
             rewindUnits,
             collapsedCards,
             view,
@@ -195,6 +235,7 @@ export function useSettings() {
             height: DEFAULT_PANEL_HEIGHT,
             collapsed: false,
             hue: Math.floor(Math.random() * 360),
+            scale: 1,
         });
     }
 
@@ -215,6 +256,21 @@ export function useSettings() {
         panels.value = panels.value.filter((p) => p.id !== id);
     }
 
+    /**
+     * Set the hero's magnification, clamped to the range the boxes stay usable
+     * in. Each panel is magnified on its own: they show different notations at
+     * different depths, so one shared factor never suits more than one of them.
+     */
+    function setHeroScale(value: number) {
+        heroScale.value = clampScale(value);
+    }
+
+    /** Set one panel's magnification, clamped like the hero's. */
+    function setPanelScale(id: string, value: number) {
+        const panel = panels.value.find((p) => p.id === id);
+        if (panel) panel.scale = clampScale(value);
+    }
+
     return {
         fontFamily,
         fontSize,
@@ -223,6 +279,7 @@ export function useSettings() {
         panels,
         heroHeight,
         maxColumns,
+        heroScale,
         rewindUnits,
         collapsedCards,
         view,
@@ -233,5 +290,7 @@ export function useSettings() {
         addPanel,
         togglePanel,
         removePanel,
+        setHeroScale,
+        setPanelScale,
     };
 }
