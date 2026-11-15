@@ -149,6 +149,14 @@ export function ordinalAtValue(value: number): string {
     return ordinal_at_value(value);
 }
 
+/** One reading of a milestone in another notation, baked at build time. */
+export interface Reading {
+    label: string;
+    /** Whether the term is LaTeX, typeset by KaTeX, or plain text. */
+    latex: boolean;
+    term: string;
+}
+
 /** One entry of the generated milestone table. */
 export interface MilestoneRow {
     ordinal: string;
@@ -156,6 +164,7 @@ export interface MilestoneRow {
     desc: string;
     value: number;
     atMs: number;
+    readings: Reading[];
 }
 
 /** The milestone table (generated at build time). */
@@ -168,11 +177,13 @@ export function milestoneRows(): MilestoneRow[] {
         desc: string;
         value: number | null;
         atMs: number | null;
+        readings: Reading[];
     }[];
     return raw.map((row) => ({
         ...row,
         value: row.value ?? Number.POSITIVE_INFINITY,
         atMs: row.atMs ?? Number.POSITIVE_INFINITY,
+        readings: row.readings ?? [],
     }));
 }
 

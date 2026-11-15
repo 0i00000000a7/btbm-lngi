@@ -1,6 +1,6 @@
 <script setup lang="ts" vapor>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
-import { ZERO_TEXT } from './core/render';
+import { ZERO_TEXT, readingHtml } from './core/render';
 import HtmlBlock from './components/HtmlBlock.vue';
 import OrdinalBox from './components/OrdinalBox.vue';
 import {
@@ -100,7 +100,6 @@ interface LevelBar {
      * which at speed is the only thing you ever see.
      */
     key: string;
-    html: string;
     percent: number;
     /** Elapsed milliseconds at which the level completes. */
     atMs: number;
@@ -141,12 +140,22 @@ const levelBarHtml = new Map<string, string>();
 const LEVEL_BAR_INTERVAL = 50;
 let levelBarStamp = 0;
 
+/**
+ * The level's term in the hero's current structure.
+ *
+ * The stack belongs to the hero, so it has to follow the same mode: switching
+ * the hero between Layer, Index and Annotated switches these labels too.
+ * Reading the mode here (rather than when the rows are built) is also what
+ * makes the labels re-render the moment the setting changes.
+ */
 function levelBarLabel(plain: string): string {
-    const hit = levelBarHtml.get(plain);
+    const mode = heroMode.value;
+    const key = mode + '|' + plain;
+    const hit = levelBarHtml.get(key);
     if (hit !== undefined) return hit;
-    const html = renderOrdinal(plain, 'layer', false, 0);
-    if (levelBarHtml.size > 512) levelBarHtml.clear();
-    levelBarHtml.set(plain, html);
+    const html = renderOrdinal(plain, mode, false, 0);
+    if (levelBarHtml.size > 1024) levelBarHtml.clear();
+    levelBarHtml.set(key, html);
     return html;
 }
 
@@ -170,7 +179,6 @@ watch(
         const elapsed = clock.elapsedMs.value;
         levelBars.value = lngiLevels(elapsed).map((l) => ({
             key: l.ordinal,
-            html: levelBarLabel(l.ordinal),
             percent: l.percent,
             atMs: l.atMs,
             left: formatSpan(l.atMs - elapsed),
@@ -532,37 +540,51 @@ const isRelative = (atMs: number) =>
     !Number.isFinite(atMs) || Math.abs(START_MS + atMs) > 8.64e15;
 
 /**
- * The landmark's term as HTML, so the caret form the table is written in
- * (`(0)(1^(2))`) shows up as superscripts instead of literal `^` and `(…)`.
- * Zero is the empty matrix — the table stores it as an empty string — so it is
- * spelled out here. Entries that are not matrices (`LIMIT`) stay as text.
- */
-function termHtml(ordinal: string): string {
-    if (!ordinal) return ZERO_TEXT;
-    try {
-        // The table stores the walk's own spelling; the level reading is what
-        // BMS writers expect, and it is what the conversion produces.
-        return renderOrdinal(ordinal, 'layer', false, 0);
-    } catch {
-        return ordinal.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-}
-
-const milestoneTerms = milestones.map((m) => termHtml(m.ordinal));
-
-/**
  * SHO arrives at a fixed moment; Auto switches structure there — Layer is the
  * compact form below it, Index stays readable above.
  */
 const SHO_MS =
     milestones.find((m) => m.ordinal === '(0)(1^(2))')?.atMs ?? Number.POSITIVE_INFINITY;
 
-/** The hero's structure: `auto` resolves to Layer before SHO, Index after. */
-const heroMode = computed<DisplayMode>(() => {
+/**
+ * The structure a moment is read in.
+ *
+ * Auto is the only mode that varies: it picks Layer below SHO and Index at or
+ * above it. Resolving it per moment, rather than once per view, is what keeps
+ * the hero, the level bars and the landmark table in agreement.
+ */
+function modeAt(atMs: number): DisplayMode {
     const setting = settings.defaultMode.value;
     if (setting !== 'auto') return setting;
-    return clock.elapsedMs.value < SHO_MS ? 'layer' : 'index';
-});
+    return atMs < SHO_MS ? 'layer' : 'index';
+}
+
+/** The hero's structure: the one the moment it shows is read in. */
+const heroMode = computed<DisplayMode>(() => modeAt(clock.elapsedMs.value));
+
+/**
+ * The landmark's term as HTML, so the caret form the table is written in
+ * (`(0)(1^(2))`) shows up as superscripts instead of literal `^` and `(…)`.
+ * Zero is the empty matrix — the table stores it as an empty string — so it is
+ * spelled out here. Entries that are not matrices (`LIMIT`) stay as text.
+ */
+function termHtml(ordinal: string, mode: DisplayMode): string {
+    if (!ordinal) return ZERO_TEXT;
+    try {
+        // The table stores the walk's own spelling; mode is how it is drawn.
+        return renderOrdinal(ordinal, mode, false, 0);
+    } catch {
+        return ordinal.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+}
+
+/**
+ * Each landmark in the structure its own moment is read in, so the whole card
+ * follows the setting instead of always showing the Layer form.
+ */
+const milestoneTerms = computed(() =>
+    milestones.map((m) => termHtml(m.ordinal, modeAt(m.atMs))),
+);
 
 /**
  * Whether the landmark is behind the walk.
@@ -598,7 +620,7 @@ const nextIndex = computed(() => {
 
 const shownIndex = computed(() => focused.value ?? nextIndex.value);
 const shown = computed(() => milestones[shownIndex.value] ?? null);
-const shownTerm = computed(() => milestoneTerms[shownIndex.value] ?? '');
+const shownTerm = computed(() => milestoneTerms.value[shownIndex.value] ?? '');
 const shownDate = computed(() =>
     shown.value ? formatMoment(START_MS + shown.value.atMs, settings.lang.value) : '',
 );
@@ -609,6 +631,15 @@ const shownDesc = computed(() => {
     if (!m) return '';
     return settings.lang.value === 'zh' ? (DESC_ZH[m.ordinal] ?? m.desc) : m.desc;
 });
+
+/**
+ * The landmark read in the weaker notations.
+ *
+ * The readings are baked into the milestone table by its generator — converting
+ * a long ordinal costs milliseconds, and doing it for every row at startup
+ * would be far worse than the table itself.
+ */
+const shownReadings = computed(() => shown.value?.readings ?? []);
 
 /** A signed distance in the chosen language: `3 years away` / `3 years ago`. */
 function away(deltaMs: number): string {
@@ -836,7 +867,7 @@ const barRows = computed(() => {
         const ratio = Number.isFinite(span) && span > 0 ? (now - from) / span : 1;
         out.push({
             key: i,
-            term: milestoneTerms[i],
+            term: milestoneTerms.value[i],
             pct: Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 1,
             left: Number.isFinite(m.atMs)
                 ? formatDurationShort(m.atMs - now, settings.lang.value)
@@ -993,7 +1024,9 @@ const browsePrompt = computed(
 );
 
 const browseTerm = computed(() =>
-    browse.value.state === 'found' ? termHtml(browse.value.ordinal) : '',
+    browse.value.state === 'found'
+        ? termHtml(browse.value.ordinal, modeAt(browse.value.atMs))
+        : '',
 );
 
 const browseAt = computed(() =>
@@ -1226,7 +1259,7 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                             :style="{ '--level-bar-fill': row.percent * 100 + '%', '--level-bar-hue': 200 + (levelBarPage * LEVEL_BAR_PAGE + i) * 7 }"
                         >
                             <div class="level-bar-fill" />
-                            <HtmlBlock class="level-bar-term" :html="row.html" />
+                            <HtmlBlock class="level-bar-term" :html="levelBarLabel(row.key)" />
                             <span class="level-bar-meta">
                                 {{ (row.percent * 100).toFixed(2) }}% · {{ row.left }}
                             </span>
@@ -1388,6 +1421,16 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                 </button>
             </div>
             <HtmlBlock v-if="shownDesc" class="milestone-desc" :html="shownDesc" />
+            <div v-if="shownReadings.length" class="milestone-translations">
+                <span
+                    v-for="reading in shownReadings"
+                    :key="reading.label"
+                    class="milestone-translation"
+                >
+                    <span class="milestone-notation">{{ reading.label }}</span>
+                    <HtmlBlock :html="readingHtml(reading)" />
+                </span>
+            </div>
             <div class="bar"><div class="fill" :style="{ width: shownProgress * 100 + '%' }" /></div>
             <div class="milestone-foot">
                 <template v-if="focused === null && !nextMilestone">
@@ -1445,6 +1488,16 @@ function startResizeWidth(panel: { width: number }, e: PointerEvent) {
                     <span class="milestone-row-term">
                         <HtmlBlock :html="milestoneTerms[index]" />
                         <span v-if="m.title" class="milestone-row-title">{{ m.title }}</span>
+                    </span>
+                    <span v-if="m.readings.length" class="milestone-row-readings">
+                        <span
+                            v-for="reading in m.readings"
+                            :key="reading.label"
+                            class="milestone-reading"
+                        >
+                            <span class="milestone-notation">{{ reading.label }}</span>
+                            <HtmlBlock :html="readingHtml(reading)" />
+                        </span>
                     </span>
                     <span
                         class="milestone-row-date"

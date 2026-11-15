@@ -1,12 +1,16 @@
 /* Global styles for the developer page only (not part of the app bundle). */
 
 :root {
-    --dev-bg: #fbfbfd;
-    --dev-fg: #1b1f27;
-    --dev-muted: #6b7482;
-    --dev-line: #e3e6ec;
-    --dev-accent: #6a2fd8;
-    --dev-accent-soft: #efe6ff;
+    /* Same stack as the main page, so a term looks the same in both. */
+    --mono: 'JetBrains Mono', 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    --dev-bg: #ffffff;
+    --dev-fg: #111111;
+    --dev-muted: #888888;
+    --dev-line: #cccccc;
+    --dev-accent: #0066cc;
+    --dev-accent-soft: #ddddff;
+    --dev-hover: #ccffff;
     --dev-done: #f2f4f7;
 }
 
@@ -23,7 +27,14 @@ body {
 }
 
 body {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 13px;
-    line-height: 1.45;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+::selection {
+    background: var(--dev-accent-soft);
+    color: var(--dev-fg);
 }

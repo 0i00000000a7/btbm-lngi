@@ -22,7 +22,14 @@ interface Entry {
     desc: string;
 }
 
+interface Reading {
+    label: string;
+    latex: boolean;
+    term: string;
+}
+
 const HEADER = 'pub const ENTRIES: &[(&str, &str, &str)] = &[';
+const READINGS_HEADER = 'pub const EXTRA_READINGS: &[(&str, &[Reading])] = &[';
 
 /** A Rust string literal; the table is ASCII plus a few accented names. */
 function literal(s: string): string {
@@ -50,6 +57,54 @@ async function writeEntries(root: string, entries: Entry[]): Promise<number> {
     return entries.length;
 }
 
+/**
+ * Replace the EXTRA_READINGS block: hand-written readings for the landmarks a
+ * converter cannot reach, keyed by the spelling the generated table stores.
+ *
+ * They are merged into the table by the generator, so the app pays nothing at
+ * runtime — the same reason the automatic readings are baked.
+ */
+async function writeReadings(
+    root: string,
+    readings: Record<string, Reading[]>,
+): Promise<number> {
+    const file = path.join(root, 'src/rust/milestones.rs');
+    const source = await readFile(file, 'utf8');
+
+    const start = source.indexOf(READINGS_HEADER);
+    if (start < 0) throw new Error('no EXTRA_READINGS block in ' + file);
+    const bodyStart = start + READINGS_HEADER.length;
+    const end = source.indexOf('\n];', bodyStart);
+    if (end < 0) throw new Error('EXTRA_READINGS block is not terminated');
+
+    const rows: string[] = [];
+    for (const [ordinal, list] of Object.entries(readings)) {
+        // A row with a label but no term is a request to drop that reading.
+        const kept = list.filter((row) => row.label.trim());
+        if (kept.length === 0) continue;
+        const items = kept
+            .map(
+                (row) =>
+                    '        Reading { label: ' +
+                    literal(row.label.trim()) +
+                    ', latex: ' +
+                    row.latex +
+                    ', term: ' +
+                    literal(row.term.trim()) +
+                    ' },',
+            )
+            .join('\n');
+        rows.push('    (' + literal(ordinal) + ', &[\n' + items + '\n    ]),');
+    }
+
+    const body = rows.length
+        ? '    // Written by the developer page (dev.html); edit there and press Rebuild.\n' +
+          rows.join('\n')
+        : '';
+    await writeFile(file, source.slice(0, bodyStart) + '\n' + body + source.slice(end), 'utf8');
+    return rows.length;
+}
+
 const exec = { maxBuffer: 32 << 20, timeout: 30 * 60_000 };
 
 export function milestoneRebuild(): Plugin {
@@ -74,8 +129,13 @@ export function milestoneRebuild(): Plugin {
                 req.on('end', async () => {
                     const log: string[] = [];
                     try {
-                        const { entries } = JSON.parse(raw) as { entries: Entry[] };
+                        const { entries, readings } = JSON.parse(raw) as {
+                            entries: Entry[];
+                            readings?: Record<string, Reading[]>;
+                        };
                         const root = server.config.root;
+                        const supplemented = await writeReadings(root, readings ?? {});
+                        log.push('wrote ' + supplemented + ' supplemented landmarks');
                         log.push(`wrote ${await writeEntries(root, entries)} entries`);
 
                         const gen = await run(

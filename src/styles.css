@@ -407,6 +407,67 @@ a.ghost {
     line-height: 1.55;
 }
 
+/*
+ * The landmark in the weaker notations: a wrapped row of chips, so the same
+ * ordinal can be compared across systems at a glance.
+ */
+.milestone-translations {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 12px;
+    margin: 5px 0 1px;
+    font-size: 0.82rem;
+    line-height: 1.7;
+}
+
+.milestone-translation {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.milestone-notation {
+    flex: none;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    user-select: none;
+}
+
+/*
+ * The readings of one landmark, on their own line under its term: the term
+ * stays single-line and ellipsised, these may wrap.
+ */
+.milestone-row-readings {
+    grid-row: 2;
+    grid-column: 2 / 4;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 12px;
+    margin-top: -3px;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    white-space: normal;
+}
+
+.milestone-reading {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.milestone-row-readings .milestone-notation {
+    font-size: 0.6rem;
+    opacity: 0.85;
+}
+
 .milestone-list {
     list-style: none;
     margin: 2px 0 0;
