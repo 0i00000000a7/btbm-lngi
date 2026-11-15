@@ -14,6 +14,7 @@
 //! so the displayed `(0)` is an **empty column** and the displayed `(1)` is
 //! `Entry { value: 0, .. }`.
 
+use std::cell::RefCell;
 use std::cmp::Ordering;
 
 use super::notation::Btbm;
@@ -199,11 +200,17 @@ pub struct LevelBar {
 #[derive(Default)]
 pub struct Lngi {
     btbm: Btbm,
+    /// `family(k - 1)` and `family(k)` for the last `k` the walk was in.
+    ///
+    /// The pair is a pure function of `k = floor(m)`, and the curve moves so
+    /// slowly that `k` holds for millennia, so the two towers are built once
+    /// and then read.
+    families: RefCell<Option<(i64, Expr, Expr)>>,
 }
 
 impl Lngi {
     pub fn new() -> Self {
-        Self { btbm: Btbm::new() }
+        Self { btbm: Btbm::new(), ..Default::default() }
     }
 
     pub fn btbm(&self) -> &Btbm {
@@ -248,14 +255,14 @@ impl Lngi {
         }
         let k = m.floor() as i64;
         let x = m - k as f64;
-        let alpha = family(k - 1);
-        let beta = family(k);
-        let (expr, y) = enum_below(&self.btbm, &alpha, &beta, x, 0, k as f64, 1.0, None);
-        self.btbm.trim_below(&expr);
-        LngiStep {
-            expr,
-            frac: 1.0 - y,
-        }
+        self.with_families(k, |alpha, beta| {
+            let (expr, y) = enum_below(&self.btbm, alpha, beta, x, 0, k as f64, 1.0, None);
+            self.btbm.trim_below(&expr);
+            LngiStep {
+                expr,
+                frac: 1.0 - y,
+            }
+        })
     }
 
     /// [`ordinal_for_value`](Self::ordinal_for_value), plus the levels the walk
@@ -272,31 +279,41 @@ impl Lngi {
         }
         let k = m.floor() as i64;
         let x = m - k as f64;
-        let alpha = family(k - 1);
-        let beta = family(k);
-        let mut levels = vec![LevelBar {
-            ordinal: beta.clone(),
-            frac: x,
-            end_value: (k + 1) as f64,
-        }];
-        let (expr, y) = enum_below(
-            &self.btbm,
-            &alpha,
-            &beta,
-            x,
-            0,
-            k as f64,
-            1.0,
-            Some(&mut levels),
-        );
-        self.btbm.trim_below(&expr);
-        (
-            LngiStep {
-                expr,
-                frac: 1.0 - y,
-            },
-            levels,
-        )
+        self.with_families(k, |alpha, beta| {
+            let mut levels = vec![LevelBar {
+                ordinal: beta.clone(),
+                frac: x,
+                end_value: (k + 1) as f64,
+            }];
+            let (expr, y) = enum_below(
+                &self.btbm,
+                alpha,
+                beta,
+                x,
+                0,
+                k as f64,
+                1.0,
+                Some(&mut levels),
+            );
+            self.btbm.trim_below(&expr);
+            (
+                LngiStep {
+                    expr,
+                    frac: 1.0 - y,
+                },
+                levels,
+            )
+        })
+    }
+
+    /// Run `f` with the `family` pair for `k`, building it only when `k` moves.
+    fn with_families<T>(&self, k: i64, f: impl FnOnce(&Expr, &Expr) -> T) -> T {
+        let mut cache = self.families.borrow_mut();
+        if cache.as_ref().map_or(true, |(cached, _, _)| *cached != k) {
+            *cache = Some((k, family(k - 1), family(k)));
+        }
+        let (_, alpha, beta) = cache.as_ref().expect("filled just above");
+        f(alpha, beta)
     }
 
     /// The first value at which the walk has caught up with `target`.
@@ -394,7 +411,7 @@ fn enum_below(
         });
     }
     // The interval collapsed to a single point: `hi = lo + 1`.
-    if n.compare(&hi, &append_zero(&lo)) == Ordering::Equal {
+    if is_successor(&lo, &hi) {
         return (lo, y);
     }
     let level_start = start + span * (1.0 - 2f64.powi(-(l as i32 - 1)));
@@ -441,10 +458,16 @@ fn min_index_ge(n: &Btbm, beta: &Expr, alpha: &Expr) -> Option<(i64, Expr)> {
     None
 }
 
-fn append_zero(expr: &Expr) -> Expr {
-    let mut out = expr.clone();
-    out.push(Vec::new());
-    out
+/// Whether `hi` is `lo` with one `(0)` column appended — the level collapsed
+/// to a single point (`hi = lo + 1`).
+///
+/// `compare(a, b) == Equal` is exactly structural equality, so this is the
+/// former `compare(&hi, &append_zero(&lo))` without cloning the whole
+/// expression on every level of the walk.
+fn is_successor(lo: &Expr, hi: &Expr) -> bool {
+    hi.len() == lo.len() + 1
+        && hi.last().map_or(false, |col| col.is_empty())
+        && hi[..lo.len()] == lo[..]
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 //! The notation object: cached FS plus a single entry point for the rest.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
@@ -34,6 +34,9 @@ fn hash_expr(expr: &Expr) -> u64 {
 #[derive(Default)]
 pub struct Btbm {
     data: RefCell<HashMap<u64, Vec<(Expr, HashMap<i64, Expr>)>>>,
+    /// Number of memoized terms. Kept incrementally so `trim_below` can bail
+    /// out in O(1) instead of summing every bucket on every frame.
+    size: Cell<usize>,
 }
 
 impl Btbm {
@@ -58,7 +61,7 @@ impl Btbm {
         }
         let mut data = self.data.borrow_mut();
         let slot = Self::slot(&mut data, expr);
-        Self::term(slot, expr, index)
+        Self::term(slot, expr, index, &self.size)
     }
 
     /// `FS(expr, a)` and `FS(expr, b)`, resolved with a single hash of `expr`.
@@ -72,8 +75,8 @@ impl Btbm {
         }
         let mut data = self.data.borrow_mut();
         let slot = Self::slot(&mut data, expr);
-        let first = Self::term(slot, expr, a);
-        let second = Self::term(slot, expr, b);
+        let first = Self::term(slot, expr, a, &self.size);
+        let second = Self::term(slot, expr, b, &self.size);
         (first, second)
     }
 
@@ -94,12 +97,18 @@ impl Btbm {
     }
 
     /// One term, computed and stored if missing.
-    fn term(map: &mut HashMap<i64, Expr>, expr: &Expr, index: i64) -> Expr {
+    fn term(
+        map: &mut HashMap<i64, Expr>,
+        expr: &Expr,
+        index: i64,
+        size: &Cell<usize>,
+    ) -> Expr {
         if let Some(cached) = map.get(&index) {
             return cached.clone();
         }
         let result = expand(expr, index);
         map.insert(index, result.clone());
+        size.set(size.get() + 1);
         result
     }
 
@@ -110,22 +119,21 @@ impl Btbm {
     /// be asked for again — keeping it would only grow the map. Trimming on
     /// every step costs more than the memory it frees, hence the threshold.
     pub fn trim_below(&self, floor: &Expr) {
-        let mut data = self.data.borrow_mut();
-        let total: usize = data
-            .values()
-            .flat_map(|bucket| bucket.iter())
-            .map(|(_, map)| map.len())
-            .sum();
-        if total <= CACHE_SOFT_LIMIT {
+        if self.size.get() <= CACHE_SOFT_LIMIT {
             return;
         }
+        let mut data = self.data.borrow_mut();
+        let mut removed = 0usize;
         data.retain(|_, bucket| {
             bucket.retain_mut(|(_, map)| {
+                let before = map.len();
                 map.retain(|_, e| compare(e, floor) != Ordering::Less);
+                removed += before - map.len();
                 !map.is_empty()
             });
             !bucket.is_empty()
         });
+        self.size.set(self.size.get() - removed);
     }
 
     /// The fundamental sequence *without* touching the cache.
