@@ -115,18 +115,19 @@ function draw(): void {
         styleStale = false;
     }
 
-    // Fractional on purpose: a panel's width is a percentage of the row, and
+    // The size comes from the observer, so nothing here forces layout. It is
+    // fractional on purpose: a panel's width is a percentage of the row, and
     // rounding it would leave the canvas a fraction of a pixel off the box.
-    const rect = bx.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return;
+    const measured = size;
+    if (measured === null || measured.width < 1 || measured.height < 1) return;
 
     // Size the backing store to whole device pixels and let the CSS size
     // follow from it, so one backing pixel is exactly one device pixel. Any
     // other pairing makes the browser resample the bitmap, which is what turns
     // the text soft.
     const dpr = window.devicePixelRatio || 1;
-    const pixelWidth = Math.max(1, Math.round(rect.width * dpr));
-    const pixelHeight = Math.max(1, Math.round(rect.height * dpr));
+    const pixelWidth = Math.max(1, Math.round(measured.width * dpr));
+    const pixelHeight = Math.max(1, Math.round(measured.height * dpr));
     const width = pixelWidth / dpr;
     const height = pixelHeight / dpr;
     const scale = props.scale;
@@ -231,10 +232,39 @@ function onTouchEnd(e: TouchEvent): void {
 let observer: IntersectionObserver | undefined;
 let resizer: ResizeObserver | undefined;
 
+/**
+ * The box's content size, kept by the `ResizeObserver`.
+ *
+ * Reading it back with `getBoundingClientRect` on every frame forces the
+ * browser to flush the style and layout it has just invalidated — about a
+ * tenth of the frame in a phone profile — for a number that only changes when
+ * the box itself does, which the observer already reports.
+ */
+let size: { width: number; height: number } | null = null;
+
 onMounted(() => {
     const node = box.value;
+    if (!node) return;
+
+    // One measurement to have something to draw with; the observer's first
+    // callback replaces it with the content box before the next paint.
+    const rect = node.getBoundingClientRect();
+    size = { width: rect.width, height: rect.height };
+
+    resizer = new ResizeObserver((entries) => {
+        const content = entries[entries.length - 1].contentRect;
+        size = { width: content.width, height: content.height };
+        styleStale = true;
+        draw();
+    });
+    resizer.observe(node);
+
+    // The palette follows the system theme, which can change under us.
+    const theme = window.matchMedia?.('(prefers-color-scheme: dark)');
+    theme?.addEventListener?.('change', onThemeChange);
+
     // Without an observer (or a layout engine) there is nothing to gate on.
-    if (!node || typeof IntersectionObserver === 'undefined') {
+    if (typeof IntersectionObserver === 'undefined') {
         visible.value = true;
         return;
     }
@@ -247,18 +277,8 @@ onMounted(() => {
     );
     // The observer's first callback arrives a frame later; draw now so a panel
     // that is already on screen does not start out blank.
-    visible.value = node.getBoundingClientRect().top < window.innerHeight + 300;
+    visible.value = rect.top < window.innerHeight + 300;
     observer.observe(node);
-
-    resizer = new ResizeObserver(() => {
-        styleStale = true;
-        draw();
-    });
-    resizer.observe(node);
-
-    // The palette follows the system theme, which can change under us.
-    const theme = window.matchMedia?.('(prefers-color-scheme: dark)');
-    theme?.addEventListener?.('change', onThemeChange);
 });
 
 function onThemeChange(): void {
