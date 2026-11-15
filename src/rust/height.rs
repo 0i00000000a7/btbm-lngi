@@ -22,6 +22,10 @@ pub(crate) fn to_height(e: &Expr, r: i64) -> Height {
 }
 
 /// The inverse of [`to_height`].
+///
+/// Only the differential oracle in `layer.rs` still materializes heights; the
+/// production conversion reads them lazily.
+#[cfg(test)]
 pub(crate) fn from_height(h: &Height, r: i64) -> Expr {
     h.iter()
         .map(|col| {

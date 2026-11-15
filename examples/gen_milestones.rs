@@ -19,6 +19,32 @@ fn lit(x: f64) -> String {
     }
 }
 
+/// The readings of a landmark, as the Rust literal the table is built from.
+///
+/// Computed here, once, rather than in the app: converting a long ordinal
+/// takes milliseconds, and the milestone list would need one per row on every
+/// page load.
+fn readings_literal(n: &Btbm, e: Option<&btbm_core::Expr>, key: &str) -> String {
+    // Hand-written rows are keyed by the stored spelling; zero and LIMIT have
+    // no expression to convert, so only those can apply.
+    let rows = match e {
+        Some(e) => btbm_core::milestones::readings_with_extra(n, e, key),
+        None => btbm_core::milestones::extra_readings(key),
+    };
+    if rows.is_empty() {
+        return String::from("&[]");
+    }
+    let mut out = String::from("&[");
+    for (i, (label, latex, term)) in rows.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        write!(out, "Reading {{ label: {label:?}, latex: {latex}, term: {term:?} }}").unwrap();
+    }
+    out.push(']');
+    out
+}
+
 fn main() {
     let n = Btbm::new();
     let l = Lngi::new();
@@ -29,6 +55,7 @@ fn main() {
 
     for (ordinal, title, desc) in milestones::ENTRIES {
         // The limit is a real ordinal, but not one the walk arrives at.
+        let mut expr: Option<btbm_core::Expr> = None;
         let (shown, value, at) = if ordinal.is_empty() {
             // Zero: the empty matrix, the point the walk starts from. It is not
             // reached by the curve itself, which begins at `(0)`.
@@ -46,13 +73,18 @@ fn main() {
             let value = l
                 .reach_value(&e)
                 .unwrap_or_else(|| panic!("{ordinal} lies past the end of the sequence"));
+            expr = Some(e);
             (shown, value, get_time_inv(value))
         };
+        // Keyed by the spelling the table stores, which is what the developer
+        // page sees and what EXTRA_READINGS is written against.
+        let readings = readings_literal(&n, expr.as_ref(), &shown);
         writeln!(
             out,
-            "    Milestone {{ ordinal: {shown:?}, title: {title:?}, desc: {desc:?}, value: {}, at_ms: {} }},",
+            "    Milestone {{ ordinal: {shown:?}, title: {title:?}, desc: {desc:?}, value: {}, at_ms: {}, readings: {} }},",
             lit(value),
-            lit(at)
+            lit(at),
+            readings
         )
         .unwrap();
         // `ordinal -> shown` on one line: the Chinese descriptions are keyed by

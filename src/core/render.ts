@@ -104,6 +104,29 @@ function pinnedReading(plain: string, value: number): string | null {
  * zero; the matrix-shaped notations show the empty-set sign instead, which is
  * what an empty matrix is — and is not a dash, which would read as "unknown".
  */
+/**
+ * A milestone read in another notation.
+ *
+ * The readings themselves are baked into the milestone table by the generator,
+ * so nothing is converted here: only KaTeX runs, and its output is cached by
+ * the term because the same handful of formulas repeat down the table.
+ */
+const readingMemo = new Map<string, string>();
+
+export function readingHtml(reading: { latex: boolean; term: string }): string {
+    const hit = readingMemo.get(reading.term);
+    if (hit !== undefined) return hit;
+    const html = reading.latex
+        ? katex.renderToString(reading.term, {
+              output: 'html',
+              throwOnError: false,
+              strict: false,
+          })
+        : reading.term.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    readingMemo.set(reading.term, html);
+    return html;
+}
+
 export const EMPTY_HTML = '<span class="empty-ordinal">∅</span>';
 export const ZERO_HTML = katex.renderToString('0', {
     output: 'html',
